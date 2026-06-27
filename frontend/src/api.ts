@@ -8,6 +8,11 @@ export type QueryCard = {
   soft_targets: SoftTarget[];
   negatives: Record<string, unknown>[];
 };
+export type IntentResponse = {
+  session_id: string;
+  whiteboard_posts: unknown[];
+  query_card: QueryCard;
+};
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const r = await fetch(BASE + path, {
@@ -19,8 +24,10 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return r.json();
 }
 
-export const intent = (text: string, user_id = "demo") =>
-  post<QueryCard>("/intent", { text, user_id });
+export const intent = async (text: string, user_id = "demo") => {
+  const result = await post<IntentResponse>("/intent", { text, user_id });
+  return result.query_card;
+};
 
 export const confirm = (card: QueryCard) =>
   post<{ session_id: string; cards: unknown[] }>("/intent/confirm", card);

@@ -16,22 +16,12 @@ const joinNotes = (notes: Note[]): string =>
     .filter(Boolean)
     .join("; ");
 
-// Placeholder "sound briefs" for front-end testing while the backend (/intent)
-// isn't wired up. A random one is shown each time editing finishes.
-const PSEUDO_EXPLANATIONS = [
-  "A warm, relaxed summer-evening playlist, calm, chilled, flowing and acoustic, with low-medium energy to cool you down without feeling sleepy.",
-  "A cozy late-night wind-down set, soft, intimate and acoustic, with gentle low energy to help you unwind without drifting off.",
-  "An upbeat sunny-morning mix, bright, breezy and rhythmic, with medium-high energy to get you moving.",
-  "A focused deep-work soundtrack, steady, minimal and atmospheric, with calm mid energy to keep you in flow.",
-  "A nostalgic rainy-day playlist, mellow, warm and a little melancholic, with soft low energy and plenty of space.",
-];
-
 // Local fallback used when the backend (/intent) isn't reachable, so the
 // front end stays testable on its own.
 const buildPseudoExplanation = (notes: Note[]): string => {
-  if (!joinNotes(notes)) return "";
-  const index = Math.floor(Math.random() * PSEUDO_EXPLANATIONS.length);
-  return PSEUDO_EXPLANATIONS[index];
+  const text = joinNotes(notes);
+  if (!text) return "";
+  return `A search for music shaped around: ${text}. We'll prioritize tracks whose mood, energy, instrumentation, and vocal presence match that brief.`;
 };
 
 interface NotesContextValue {
@@ -77,6 +67,7 @@ export const NotesProvider = ({ children }: { children: ReactNode }) => {
       setExplanation("");
       return;
     }
+    setExplanation(buildPseudoExplanation(notesRef.current));
     try {
       const result = await intent(text);
       setCard(result);
