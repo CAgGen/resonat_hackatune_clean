@@ -60,7 +60,9 @@ def _card(cyanite_id: str, score: float, source: str) -> dict:
     }
 
 
-def _whiteboard_text(s: dict) -> str:
+def _final_prompt(s: dict) -> str:
+    """记忆的根基：用户最后确认的那版白板上下文（initial + 全部 follow-up）。
+    确认门之后才会 like，所以此刻白板即最终意图。"""
     return " / ".join(p["text"] for p in s["whiteboard_posts"])
 
 
@@ -68,18 +70,38 @@ def _visible_ids(s: dict) -> set[str]:
     return {c["cyanite_id"] for c in s["visible_cards"]}
 
 
+def _expand_pool(s: dict) -> None:
+    """按当前 liked 集合搜相似候选，重建 candidate_pool。
+    - liked 集合没变 → 直接复用，不重复打 API。
+    - liked ≥ 2 → 多种子 `find_similar_multi`（求公共声音区）；正好 1 个 → 单种子 `find_similar`。"""
+    sig = tuple(s["liked_tracks"])
+    if not sig or sig == s["pool_sig"]:
+        return
+    if len(s["liked_tracks"]) >= 2:
+        rows = cyanite.find_similar_multi(s["liked_tracks"], limit=config.SIMILAR_LIMIT)
+    else:
+        rows = cyanite.find_similar(s["liked_tracks"][0], limit=config.SIMILAR_LIMIT)
+    s["candidate_pool"] = [{
+        "cyanite_id": r["cyanite_id"], "source_liked_track": ",".join(s["liked_tracks"]),
+        "similar_score": r["score"], "prompt_match_score": None, "status": "candidate"
+    } for r in rows]
+    s["pool_sig"] = sig
+
+
 def _backfill(s: dict) -> dict | None:
-    """dislike 留下的空位回填一首：候选池里 score 最高、未被踩、未在列表的那首；
-    池空则用 freeText backlog 补位；都空返回 None。"""
-    pool = [p for p in s["candidate_pool"]
-            if p["cyanite_id"] not in s["disliked_tracks"]
-            and p["cyanite_id"] not in _visible_ids(s)]
-    if pool:
-        best = max(pool, key=lambda p: p["similar_score"] or 0)
-        s["candidate_pool"].remove(best)
-        # ponytail: 按 similar_score 排。Cyanite 没有"单曲↔prompt 匹配分"端点；
-        #           若日后有，给候选填 prompt_match_score 并改按它排。
-        return _card(best["cyanite_id"], best["similar_score"], "similar")
+    """dislike 留下的空位回填一首：先用 liked 种子搜出相似候选（只在此刻、只搜没搜过的种子），
+    再挑 score 最高、未被踩、未在列表的那首；没有 liked 种子则用 freeText backlog 补位。"""
+    if s["liked_tracks"]:
+        _expand_pool(s)
+        pool = [p for p in s["candidate_pool"]
+                if p["cyanite_id"] not in s["disliked_tracks"]
+                and p["cyanite_id"] not in _visible_ids(s)]
+        if pool:
+            best = max(pool, key=lambda p: p["similar_score"] or 0)
+            s["candidate_pool"].remove(best)
+            # ponytail: 按 similar_score 排。Cyanite 没有"单曲↔prompt 匹配分"端点；
+            #           若日后有，给候选填 prompt_match_score 并改按它排。
+            return _card(best["cyanite_id"], best["similar_score"], "similar")
     if s["free_text_backlog"]:
         return s["free_text_backlog"].pop(0)
     return None
@@ -94,8 +116,10 @@ def start_session(user_id: str, text: str) -> dict:
         "whiteboard_posts": [_new_post("initial_prompt", text)],
         "query_card": {},
         "visible_cards": [],      # 当前右下推荐列表
-        "free_text_backlog": [],  # freeText 召回里尚未展示的
-        "candidate_pool": [],     # like 后 similarById 找到的候选
+        "free_text_backlog": [],  # freeText 召回里尚未展示的（liked 为空时的回填来源）
+        "liked_tracks": [],       # 用户 like 的曲 = dislike 时 similarById 的种子
+        "pool_sig": None,         # 上次建池用的 liked 集合签名（变了才重搜）
+        "candidate_pool": [],     # dislike 时对 liked 种子搜出的相似候选
         "disliked_tracks": {},    # 明确踩过的
     }
     _recompile(s)
@@ -122,23 +146,21 @@ def confirm(session_id: str) -> dict:
 
 
 def feedback(session_id: str, track_id: str, verdict: str) -> dict:
-    """⑤ like → similarById 灌候选池（不冲当前列表）+ 落记忆；
-       dislike → 移除该曲 + 回填一格。最后薄重排。"""
+    """⑤ like → 只记为 liked 种子 + 落记忆，不搜索、不动列表；
+       dislike → 移除该曲 → 用 liked 种子搜相似回填一格。最后薄重排。"""
     s = _get(session_id)
     cid = track_id  # 推荐卡里 track_id 暴露的就是 cyanite_id 来源；见 _card
     if verdict == "like":
-        for sim in cyanite.find_similar(cid, limit=config.SIMILAR_LIMIT):
-            s["candidate_pool"].append({
-                "cyanite_id": sim["cyanite_id"], "source_liked_track": cid,
-                "similar_score": sim["score"], "prompt_match_score": None,
-                "status": "candidate"})
-        # ⑦ 落记忆：证据追加 + 画像重写（接缝在 memory 模块）
-        memory.append_evidence(s["user_id"], _whiteboard_text(s), [cid])
+        if cid not in s["liked_tracks"]:
+            s["liked_tracks"].append(cid)
+        # ⑦ 落记忆：证据追加（以最后确认的 prompt 为根基）+ 画像重写（接缝在 memory 模块）
+        memory.append_evidence(s["user_id"], _final_prompt(s), [cid])
         memory.rewrite_memory(s["user_id"])
+        # 不跑任何检索，visible_cards 不动
     elif verdict == "dislike":
         s["disliked_tracks"][cid] = True
         s["visible_cards"] = [c for c in s["visible_cards"] if c["cyanite_id"] != cid]
-        fill = _backfill(s)
+        fill = _backfill(s)  # similarById 只在这里、由 dislike 触发
         if fill:
             s["visible_cards"].append(fill)
     s["visible_cards"] = rerank.thin_rerank(s["visible_cards"])  # ⑥
