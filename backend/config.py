@@ -14,6 +14,12 @@ load_dotenv(pathlib.Path(__file__).resolve().parents[1] / ".env")
 CYANITE_API_KEY = os.environ.get("CYANITE_API_KEY", "")
 CYANITE_BASE_URL = "https://rest-api.cyanite.ai/v1"
 
+# --- OpenAI ---
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.4-nano")
+OPENAI_TIMEOUT = int(os.environ.get("OPENAI_TIMEOUT", "20"))
+
 # --- 编排旋钮 ---
 VISIBLE_N = 5        # 推荐列表一次展示几首
 SEARCH_LIMIT = 20    # freeText 召回上限
