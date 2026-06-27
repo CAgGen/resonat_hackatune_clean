@@ -11,3 +11,6 @@ __pycache__/
 
 # python venv
 .venv/
+
+# node
+node_modules/
