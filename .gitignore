@@ -14,3 +14,6 @@ __pycache__/
 
 # node
 node_modules/
+
+# 运行时记忆（每用户 markdown，非源码）
+backend/memory/*.md
