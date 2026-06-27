@@ -12,8 +12,11 @@ def _iter(outputs):
 def normalize(outputs) -> dict:
     t = {"moods": [], "genres": [], "instruments": [], "character": [],
          "movement": [], "bpm": None, "tempo": None, "valence": None,
-         "arousal": None, "energy": None, "era": None, "vocals": [],
-         "description": None}
+         "arousal": None, "energy": None, "emotion": None, "era": None,
+         "vocals": [], "description": None,
+         # richer fields (present only when the extra models are requested)
+         "moodAdvanced": [], "musicFor": [], "freeGenres": [], "subgenres": [],
+         "key": None}
     for mo in _iter(outputs):
         v = mo.get("version")
         if v == "MoodSimpleV2":
@@ -34,12 +37,23 @@ def normalize(outputs) -> dict:
             sc = mo.get("scores") or {}
             t["valence"], t["arousal"] = sc.get("valence"), sc.get("arousal")
             t["energy"] = mo.get("energyLevel")
+            t["emotion"] = mo.get("emotionProfile")
         elif v == "MusicalEraV2":
             t["era"] = mo.get("tag")
         elif v == "VocalsV2":
             t["vocals"] = mo.get("tags") or []
         elif v == "AutoDescriptionV2":
             t["description"] = mo.get("description")
+        elif v == "MoodAdvancedV2":
+            t["moodAdvanced"] = mo.get("tags") or []
+        elif v == "MusicForV1":
+            t["musicFor"] = mo.get("tags") or []
+        elif v == "FreeGenreV3":
+            t["freeGenres"] = mo.get("tags") or []
+        elif v == "SubgenreV2":
+            t["subgenres"] = mo.get("tags") or []
+        elif v == "KeyV2":
+            t["key"] = mo.get("tag")
     return t
 
 

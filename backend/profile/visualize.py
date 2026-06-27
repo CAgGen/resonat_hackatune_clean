@@ -94,6 +94,48 @@ def render_card(user_id, out=None):
     return out
 
 
+def render_timeline(user_id, out=None, top=5):
+    """Taste-evolution timeline: how the top moods/genres affinities and the
+    emotional centre drifted as feedback accumulated ('memory gets sharper')."""
+    st = mdmemory.load(user_id)
+    hist = st.get("history", [])
+    if len(hist) < 2:
+        raise SystemExit(f"not enough history for {user_id} (need ≥2 feedback events)")
+    s = mdmemory.summary(user_id, _state=st)
+    xs = [h["t"] for h in hist]
+
+    fig, ax = plt.subplots(1, 3, figsize=(18, 5))
+    fig.suptitle(f"Taste evolution — user {user_id}", fontsize=13, fontweight="bold")
+
+    def traj(a, dim, title):
+        top_tags = [x["tag"] for x in s["likes"][dim][:top]]
+        cmap = plt.get_cmap("tab10")
+        for i, tag in enumerate(top_tags):
+            ys = [h[dim].get(tag, 0.0) for h in hist]
+            a.plot(xs, ys, marker="o", ms=3, color=cmap(i), label=tag)
+        a.set_title(title); a.set_xlabel("feedback events"); a.set_ylabel("affinity")
+        a.legend(fontsize=8); a.set_ylim(-0.05, 1.05)
+
+    traj(ax[0], "moods", "Mood affinities over time")
+    traj(ax[1], "genres", "Genre affinities over time")
+
+    a = ax[2]
+    a.plot(xs, [h.get("valence") for h in hist], marker="o", ms=3, label="valence", color="#DD8452")
+    a.plot(xs, [h.get("arousal") for h in hist], marker="o", ms=3, label="arousal", color="#4C72B0")
+    a.axhline(0, color="grey", lw=0.6)
+    a.set_title("Emotional centre over time"); a.set_xlabel("feedback events")
+    a.set_ylim(-1, 1); a.legend(fontsize=8)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    out = out or os.path.join(OUT_DIR, f"timeline_{mdmemory._safe(user_id)}.png")
+    plt.savefig(out, dpi=130)
+    return out
+
+
 if __name__ == "__main__":
     uid = sys.argv[1] if len(sys.argv) > 1 else "exp_4006097"
-    print("saved:", render_card(uid))
+    print("card:", render_card(uid))
+    try:
+        print("timeline:", render_timeline(uid))
+    except SystemExit as e:
+        print("timeline:", e)

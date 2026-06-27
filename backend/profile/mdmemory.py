@@ -70,6 +70,7 @@ def _empty(user_id):
             "scenarios": {},          # mood -> {"bpm": [..], "genres": {..}}
             "exemplars": [],          # anchor tracks (CBR); redundant likes reinforce these
             "last_decision": None,    # explanation of the most recent write
+            "history": [],            # affinity snapshots over time (taste evolution)
             "notes": [], "evidence": []}
 
 
@@ -144,6 +145,10 @@ def record_feedback(user_id, track_id, verdict, prompt=None, note=None, track_ta
         decision = _novelty_gate(state, track_id, tags, prompt)
         state["last_decision"] = decision
 
+    # taste-evolution snapshot (every signal that moved affinity)
+    if s != 0:
+        _snapshot(state)
+
     # append-only raw truth -> evidence.md (and a rolling copy in state for views)
     event = {"track_id": track_id, "verdict": verdict, "prompt": prompt,
              "note": note, "brief": _brief(tags) if tags else None,
@@ -179,6 +184,18 @@ def _bump(d, key, s):
     cell["aff"] = round(cell["aff"] + ALPHA * (s - cell["aff"]), 3)
     cell["n"] += 1
     d[key] = cell
+
+
+def _snapshot(state):
+    """Record a compact affinity snapshot for the taste-evolution timeline."""
+    t = sum(state["counts"].values())
+    pick = lambda dim: {tag: c["aff"] for tag, c in state["dims"][dim].items() if c["aff"] > 0.05}
+    state.setdefault("history", []).append({
+        "t": t, "valence": state["numeric"].get("valence"),
+        "arousal": state["numeric"].get("arousal"), "bpm": state["numeric"].get("bpm"),
+        "anchors": len(state.get("exemplars", [])),
+        "moods": pick("moods"), "genres": pick("genres")})
+    state["history"] = state["history"][-300:]
 
 
 def _scenario_update(state, tags):
@@ -340,6 +357,18 @@ def _parse_evidence(user_id):
         if m:
             out.append({"verdict": m.group(1), "track_id": m.group(2), "prompt": m.group(3)})
     return out
+
+
+def taste_vector(user_id, idf=True, _state=None):
+    """Machine view for re-ranking: {f'{dim}:{tag}': weight} from positive
+    affinities, optionally weighted by IDF distinctiveness."""
+    st = _state or load(user_id)
+    v = {}
+    for dim, cells in st["dims"].items():
+        for tag, c in cells.items():
+            if c["aff"] > 0.05:
+                v[f"{dim}:{tag}"] = c["aff"] * (salience.idf(dim, tag) if idf else 1.0)
+    return v
 
 
 def seed_pool(user_id, prompt=None, limit=None):

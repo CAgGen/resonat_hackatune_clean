@@ -9,7 +9,7 @@ import os
 
 from . import config
 
-_j2c, _c2j, _users = {}, {}, {}
+_j2c, _c2j, _users, _disp = {}, {}, {}, {}
 _loaded = False
 
 
@@ -21,6 +21,8 @@ def load():
         for r in csv.DictReader(f):
             _j2c[r["track_id"]] = r["cyanite_id"]
             _c2j[r["cyanite_id"]] = r["track_id"]
+            _disp[r["cyanite_id"]] = {"name": r.get("name"),
+                                      "artist": r.get("artist_name")}
     upath = os.path.join(config.DATA_DIR, "users.csv")
     if os.path.exists(upath):
         with open(upath) as f:
@@ -37,6 +39,14 @@ def audio_url(cyanite_id):
     load()
     jid = _c2j.get(cyanite_id)
     return f"https://prod-1.storage.jamendo.com/download/track/{jid}/mp32/" if jid else None
+
+
+def track_display(cyanite_id):
+    load()
+    d = _disp.get(cyanite_id, {})
+    return {"cyanite_id": cyanite_id, "jamendo_id": _c2j.get(cyanite_id),
+            "name": d.get("name"), "artist": d.get("artist"),
+            "audio_url": audio_url(cyanite_id)}
 
 
 def user_ids():

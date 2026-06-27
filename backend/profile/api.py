@@ -109,6 +109,51 @@ def taste_card(user_id: str):
     return FileResponse(path, media_type="image/png")
 
 
+@router.get("/profile/{user_id}/timeline.png")
+def taste_timeline(user_id: str):
+    """Taste-evolution timeline PNG (how the profile drifted over feedback)."""
+    from . import visualize
+    try:
+        path = visualize.render_timeline(user_id)
+    except SystemExit:
+        raise HTTPException(404, "not enough history for this user yet")
+    return FileResponse(path, media_type="image/png")
+
+
+@router.get("/profile/{user_id}/year.png")
+def year_report(user_id: str, year: int = 2025):
+    """A 'Year in Sound' yearbook PNG (mood-based, Spotify-Wrapped style)."""
+    from . import yearreport
+    try:
+        path, _ = yearreport.render_report(user_id, year)
+    except SystemExit:
+        raise HTTPException(404, "no listening data for this user yet")
+    return FileResponse(path, media_type="image/png")
+
+
+class Rerank(BaseModel):
+    user_id: str
+    track_ids: List[str]
+    limit: Optional[int] = None
+
+
+@router.post("/rerank")
+def post_rerank(req: Rerank):
+    """Re-rank candidate track ids by the user's taste memory, with a grounded
+    'why this track' per result."""
+    from . import recommend
+    return {"user_id": req.user_id,
+            "results": recommend.rerank(req.user_id, req.track_ids, limit=req.limit)}
+
+
+@router.get("/profile/{user_id}/discover")
+def discover_endpoint(user_id: str, limit: int = 10):
+    """Profile -> inferred text prompt -> Cyanite prompt search -> NEW tracks,
+    memory-reranked with a 'why' each. Returns {prompt, results}."""
+    from . import discover
+    return discover.discover(user_id, limit=limit)
+
+
 # ---- standalone app ---------------------------------------------------------
 app = FastAPI(title="Cochlea — user profile / taste memory")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],

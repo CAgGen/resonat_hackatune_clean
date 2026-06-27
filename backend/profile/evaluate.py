@@ -104,14 +104,17 @@ def split(ids, frac_test=0.3):
 
 # ---- main -------------------------------------------------------------------
 def main():
+    import sys
+    n_users = int(sys.argv[1]) if len(sys.argv) > 1 else 20
     data.load()
-    users = [(u, data.user_liked_cyanite(u)) for u in data.user_ids()[:20]]
+    users = [(u, data.user_liked_cyanite(u)) for u in data.user_ids()[:n_users]]
     users = [(u, L) for u, L in users if len(L) >= 10]
-    print(f"evaluating {len(users)} users (>=10 likes each)\n")
+    print(f"evaluating {len(users)} users (>=10 likes each, from first {n_users})\n")
 
-    # negative pool = all liked tracks across these users (cached tags)
+    # negative pool = all liked tracks across these users (fetched once, cached)
     pool = sorted({t for _, L in users for t in L})
-    tagcache = {t: tagmod.for_track(t) for t in pool}      # cached -> cheap
+    print(f"  fetching/caching tags for {len(pool)} tracks ...")
+    tagcache = {t: tagmod.for_track(t) for t in pool}
 
     rec_plain, rec_idf, own_auc, cross_auc, anchor_auc, keep_ratio = [], [], [], [], [], []
     profiles_idf = {}
