@@ -35,17 +35,35 @@ import requests
 import config
 
 
-SYSTEM_PROMPT = """You compile a listener's whiteboard notes into a Cyanite free-text search query.
+CYANITE_VOCABULARY_GUIDE = """Cyanite vocabulary guide:
+- MoodSimpleV2: calm, chill, dark, energetic, epic, happy, romantic, sad, scary, sexy, ethereal, uplifting.
+- MoodAdvancedV2 examples: peaceful, quiet, reflective, relaxed, soothing, tranquil, warm, hopeful, intimate, dreamy, cinematic, melancholic, inspirational, thoughtful, delicate.
+- CharacterV2: warm, sparse, sophisticated, ethereal, mysterious, playful, powerful, retro, unpolished, cool.
+- MainGenreV2: ambient, classical, electronic, folkCountry, jazz, pop, rock, singerSongwriter, sound, soundtrack.
+- InstrumentsV2 examples: piano, acousticGuitar, electricGuitar, synth, strings, percussion, drumKit, electronicDrums, bass, cello, violin, woodwinds.
+- MovementV2: steady, flowing, pulsing, nonrhythmic, groovy, driving.
+- TempoV1: slow, mediumSlow, medium, mediumFast, fast.
+- Energy/valence-arousal: low, medium, high, positive, neutral, negative.
+- VocalsV2: instrumental, male, female; vocal presence: low, medium, high.
+- MusicForV1 examples: focus, work, study, background, night, nightDrive, cinematic, film, relaxation, reading, meditation, walk, city, drama.
+"""
+
+
+SYSTEM_PROMPT = f"""You compile a listener's whiteboard notes into a Cyanite free-text search query.
 
 Return only the requested JSON shape. Do not recommend tracks.
 
 Rules:
 - Respect every whiteboard post, including follow-up steering. Later posts refine the current intent.
 - Use the taste profile as preference context, not as a replacement for the current request.
-- Optimize free_text_query for Cyanite audio search: concise English phrases about sound, mood, genre, instrumentation, energy, tempo, vocal presence, era, and use case.
-- Keep interpretation_plain user-facing and short.
+- Optimize free_text_query for Cyanite audio search using terms close to Cyanite tags: mood, genre, character, instrumentation, energy, tempo, movement, vocal presence, era, and use case.
+- interpretation_plain is the first explainability moment. It must not simply paraphrase the user. Explain how you translated the request into searchable audio traits and, when available, how the taste profile nudges the target.
+- Keep interpretation_plain concise: 2 short sentences, 35-60 words total. Use user-facing natural English, but anchor important words in Cyanite-style tags.
+- Avoid copying long phrases from the user's prompt. Prefer inferred traits, e.g. "late-night work" -> focus/background, quiet, low energy, low vocal presence, steady or nonrhythmic movement.
 - soft_targets are helpful audio attributes with weights from 0.0 to 1.0.
 - negatives are things to down-rank, not hard filters.
+
+{CYANITE_VOCABULARY_GUIDE}
 """
 
 QUERY_CARD_SCHEMA = {
@@ -127,20 +145,26 @@ def _build_user_prompt(posts: list[dict], profile_md: str) -> str:
     lines.append("")
     lines.append("User taste profile:")
     lines.append(profile_md.strip() or "(none yet)")
+    lines.append("")
+    lines.append("Output guidance:")
+    lines.append("- interpretation_plain: explain the inference from request/profile to Cyanite-style sound traits; do not restate the prompt.")
+    lines.append("- free_text_query: compact English search phrase using Cyanite-style vocabulary from the guide.")
     return "\n".join(lines)
 
 
 def _fallback_query_card(posts: list[dict], profile_md: str) -> dict:
     texts = [p["text"] for p in _clean_posts(posts)]
     profile = profile_md.strip()
-    query_parts = texts[:]
+    request_text = "; ".join(texts)
+    traits = _infer_cyanite_traits(request_text, profile)
+    query_parts = traits[:]
     if profile:
-        query_parts.append(f"taste profile: {profile}")
-    query = "; ".join(query_parts)
+        query_parts.append(_short_profile_hint(profile))
+    query = ", ".join(dict.fromkeys(part for part in query_parts if part))
     return {
-        "interpretation_plain": f"I understand the target as: {query}",
+        "interpretation_plain": _fallback_interpretation(request_text, profile, traits),
         "free_text_query": query,
-        "soft_targets": [],
+        "soft_targets": _fallback_soft_targets(traits),
         "negatives": _fallback_negatives(query),
     }
 
@@ -159,6 +183,82 @@ def _fallback_negatives(query: str) -> list[dict]:
     if re.search(r"\b(less|no|minimal|without)\s+vocals?\b|\binstrumental\b", query, re.I):
         negatives.append({"dim": "vocals", "value": "vocal"})
     return negatives
+
+
+def _infer_cyanite_traits(request_text: str, profile_md: str) -> list[str]:
+    text = f"{request_text} {profile_md}".lower()
+    traits: list[str] = []
+    if re.search(r"\b(calm|quiet|peaceful|relax|relaxed|soft|gentle)\b", text):
+        traits.extend(["calm", "peaceful", "quiet", "low energy"])
+    if re.search(r"\b(late[- ]?night|night|midnight|sleep)\b", text):
+        traits.extend(["night", "intimate", "warm"])
+    if re.search(r"\b(work|working|focus|study|reading|background)\b", text):
+        traits.extend(["focus", "background", "low vocal presence", "steady movement"])
+    if re.search(r"\b(cinematic|film|scene|soundtrack)\b", text):
+        traits.extend(["cinematic", "soundtrack", "reflective"])
+    if re.search(r"\b(hopeful|uplifting|positive|warm)\b", text):
+        traits.extend(["hopeful", "warm", "positive"])
+    if re.search(r"\b(sad|melancholic|melancholy|lonely)\b", text):
+        traits.extend(["melancholic", "reflective"])
+    if re.search(r"\b(piano)\b", text):
+        traits.append("piano")
+    if re.search(r"\b(acoustic guitar|guitar)\b", text):
+        traits.append("acousticGuitar")
+    if re.search(r"\b(ambient|texture|textures|synth|electronic)\b", text):
+        traits.extend(["ambient", "synth", "ethereal"])
+    if re.search(r"\b(instrumental|no vocal|less vocal|without vocal|mostly instrumental)\b", text):
+        traits.append("instrumental")
+    if re.search(r"\b(slow|low energy|unhurried)\b", text):
+        traits.extend(["slow", "low energy"])
+    return list(dict.fromkeys(traits)) or ["reflective", "mediumSlow", "background"]
+
+
+def _fallback_interpretation(request_text: str, profile_md: str, traits: list[str]) -> str:
+    trait_text = ", ".join(traits[:6])
+    profile_sentence = ""
+    if profile_md.strip():
+        profile_sentence = f" Your taste profile nudges this toward {_short_profile_hint(profile_md)}."
+    if re.search(r"\b(work|working|focus|study|reading|background)\b", request_text, re.I):
+        return (
+            f"I'm translating this into music that can sit in the background: {trait_text}, "
+            "with low distraction and a stable feel."
+            f"{profile_sentence}"
+        )
+    return (
+        f"I'm translating the notes into searchable Cyanite traits: {trait_text}. "
+        "The goal is to match the sound and use case, not just reuse the words you typed."
+        f"{profile_sentence}"
+    )
+
+
+def _fallback_soft_targets(traits: list[str]) -> list[dict]:
+    dim_by_trait = {
+        "calm": "mood",
+        "peaceful": "mood",
+        "quiet": "mood",
+        "hopeful": "mood",
+        "warm": "character",
+        "cinematic": "musicFor",
+        "focus": "musicFor",
+        "background": "musicFor",
+        "low energy": "energy",
+        "steady movement": "movement",
+        "instrumental": "vocals",
+        "piano": "instrument",
+        "acousticGuitar": "instrument",
+        "slow": "tempo",
+    }
+    targets = []
+    for trait in traits[:8]:
+        dim = dim_by_trait.get(trait)
+        if dim:
+            targets.append({"dim": dim, "value": trait, "weight": 0.75})
+    return targets
+
+
+def _short_profile_hint(profile_md: str) -> str:
+    words = re.findall(r"[A-Za-z][A-Za-z0-9-]*", profile_md)
+    return " ".join(words[:14])
 
 
 def _extract_output_text(payload: dict) -> str:

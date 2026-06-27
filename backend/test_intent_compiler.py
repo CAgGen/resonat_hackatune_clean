@@ -18,10 +18,37 @@ def test_fallback_compiles_posts_and_profile_without_openai_key(monkeypatch):
         "User often likes warm analog synths and low energy acoustic textures.",
     )
 
-    assert "lonely night train scene" in card["free_text_query"]
-    assert "less vocal" in card["free_text_query"]
-    assert "warm analog synths" in card["free_text_query"]
+    assert "night" in card["free_text_query"]
+    assert "warm" in card["free_text_query"]
+    assert "low energy" in card["free_text_query"]
+    assert "instrumental" in card["free_text_query"]
+    assert "I understand the target as" not in card["interpretation_plain"]
     assert {"dim": "vocals", "value": "vocal"} in card["negatives"]
+    assert card["soft_targets"]
+
+
+def test_fallback_interpretation_explains_inferred_work_music_traits(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "", raising=False)
+
+    card = intent_compiler.compile_query_card(
+        [{
+            "role": "initial_prompt",
+            "text": (
+                "Find me something calm and cinematic for working late at night. "
+                "I want soft piano or warm acoustic guitar, low energy, gentle rhythm, "
+                "mostly instrumental, and a slightly hopeful mood."
+            ),
+        }],
+        "User often likes warm acoustic textures and reflective background music.",
+    )
+
+    assert "background" in card["interpretation_plain"]
+    assert "low distraction" in card["interpretation_plain"]
+    assert "calm" in card["free_text_query"]
+    assert "cinematic" in card["free_text_query"]
+    assert "piano" in card["free_text_query"]
+    assert "acousticGuitar" in card["free_text_query"]
+    assert len(card["interpretation_plain"].split()) < 75
 
 
 def test_openai_response_is_requested_as_query_card_json(monkeypatch):
@@ -60,9 +87,12 @@ def test_openai_response_is_requested_as_query_card_json(monkeypatch):
     assert captured["headers"]["Authorization"] == "Bearer sk-test"
     assert captured["json"]["model"] == "gpt-test"
     assert captured["json"]["text"]["format"]["name"] == "cyanite_query_card"
+    assert "Cyanite vocabulary guide" in captured["json"]["instructions"]
+    assert "must not simply paraphrase" in captured["json"]["instructions"]
     user_input = captured["json"]["input"][0]["content"][0]["text"]
     assert "lonely night train scene" in user_input
     assert "less vocal" in user_input
     assert "warm analog synths" in user_input
+    assert "do not restate the prompt" in user_input
     assert card["free_text_query"].startswith("restrained low energy")
     assert card["soft_targets"][0]["weight"] == 0.8
