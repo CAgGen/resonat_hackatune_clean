@@ -62,7 +62,7 @@ const StartPage = () => {
           {/* Center text: greeting at the start, the explanation once editing finishes. */}
           {explanation ? (
             <div className="start-page-copy max-w-2xl text-center">
-              <p className="font-hand mb-3 -rotate-2 text-[28px] font-semibold leading-none text-[var(--red)]">
+              <p className="font-sans mb-3 -rotate-2 text-[28px] font-semibold leading-none text-[var(--red)]">
                 We translated your note into a sound brief.
               </p>
               <p className="font-serif text-[32px] italic leading-[1.2] text-[var(--paper)]">

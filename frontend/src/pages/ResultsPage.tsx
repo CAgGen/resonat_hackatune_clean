@@ -42,14 +42,14 @@ const ResultsPage = () => {
 
   return (
     <main
-      className={`results-page-enter relative isolate flex min-h-screen w-full overflow-hidden bg-[var(--ink)] text-[var(--paper)] ${
+      className={`results-page-enter relative isolate flex min-h-screen w-full flex-col overflow-x-hidden bg-[var(--ink)] text-[var(--paper)] md:flex-row md:overflow-hidden ${
         isLeaving ? "results-page-leaving" : ""
       }`}
     >
       <GrainientBackground />
 
       {/* Left panel — the shrunk taste board. */}
-      <aside className="relative z-10 flex h-screen w-96 shrink-0 flex-col overflow-y-auto border-r border-[var(--color-border)] p-5">
+      <aside className="relative z-10 flex w-full shrink-0 flex-col overflow-y-auto border-b border-[var(--color-border)] p-5 md:h-screen md:w-96 md:border-b-0 md:border-r">
         <h2 className="font-display mb-5 text-[24px] font-bold uppercase leading-none text-[var(--paper)]">
           Your taste board
         </h2>
@@ -88,7 +88,7 @@ const ResultsPage = () => {
       </aside>
 
       {/* Right panel — the playlist. */}
-      <section className="relative z-10 flex-1 overflow-y-auto p-10">
+      <section className="relative z-10 w-full flex-1 overflow-y-auto p-6 md:p-10">
         <h1 className="font-display max-w-3xl text-[40px] font-bold uppercase leading-none tracking-[-0.01em] text-[var(--paper)]">
           A playlist built from your memo
         </h1>
@@ -97,7 +97,7 @@ const ResultsPage = () => {
           {PLAYLIST_TITLE}
         </p>
 
-        <div className="mt-12">
+        <div className="mt-10">
           <PlaylistFan />
         </div>
       </section>
