@@ -1,4 +1,7 @@
+import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate } from "react-router-dom";
+import GrainientBackground from "../components/GrainientBackground";
 import NoteCard from "../components/NoteCard";
 import PlaylistFan from "../components/PlaylistFan";
 import Stack from "../components/Stack";
@@ -10,17 +13,48 @@ const PLAYLIST_TITLE = "Summer Relaxation: Cooling Vibes with Harry Styles and F
 
 const ResultsPage = () => {
   const { notes } = useNotes();
+  const [isLeaving, setIsLeaving] = useState(false);
+  const leaveTimer = useRef<number | null>(null);
   const navigate = useNavigate();
 
+  useEffect(
+    () => () => {
+      if (leaveTimer.current !== null) {
+        window.clearTimeout(leaveTimer.current);
+      }
+    },
+    [],
+  );
+
+  const handleSteer = () => {
+    if (!document.startViewTransition) {
+      setIsLeaving(true);
+      leaveTimer.current = window.setTimeout(() => {
+        navigate("/");
+      }, 520);
+      return;
+    }
+
+    document.startViewTransition(() => {
+      flushSync(() => navigate("/"));
+    });
+  };
+
   return (
-    <main className="flex min-h-screen w-full bg-[#1a1b20]">
+    <main
+      className={`results-page-enter relative isolate flex min-h-screen w-full flex-col overflow-x-hidden bg-[var(--ink)] text-[var(--paper)] md:flex-row md:overflow-hidden ${
+        isLeaving ? "results-page-leaving" : ""
+      }`}
+    >
+      <GrainientBackground />
+
       {/* Left panel — the shrunk taste board. */}
-      <aside className="canvas-grid flex h-screen w-96 shrink-0 flex-col overflow-y-auto border-r border-black/40 p-5">
-        <h2 className="mb-5 text-lg font-semibold text-white/85">
+      <aside className="relative z-10 flex w-full shrink-0 flex-col overflow-y-auto border-b border-[var(--color-border)] p-5 md:h-screen md:w-96 md:border-b-0 md:border-r">
+        <h2 className="font-display mb-5 text-[24px] font-bold uppercase leading-none text-[var(--paper)]">
           Your taste board
         </h2>
 
-        {/* Drag-free card stack of the brief's post-its (click to cycle). */}
+        {/* Draggable-free card stack of the brief's post-its (click to cycle). */}
         {notes.length > 0 && (
           <div className="mx-auto h-[210px] w-full max-w-[280px]">
             <Stack
@@ -34,6 +68,7 @@ const ResultsPage = () => {
                   widthClass="w-full"
                   fill
                   readOnly
+                  viewTransitionName={`note-${note.id}`}
                 />
               ))}
             />
@@ -43,25 +78,26 @@ const ResultsPage = () => {
         {/* "steer…" — go back to the start page to refine the board. */}
         <button
           type="button"
-          onClick={() => navigate("/")}
-          className="mt-6 flex w-full items-center gap-2 rounded-md border border-dashed border-white/20 px-4 py-3 text-left text-white/40 transition-colors hover:border-white/40 hover:text-white/70"
+          onClick={handleSteer}
+          disabled={isLeaving}
+          className="steer-button font-display mt-6 flex min-h-11 w-full items-center gap-2 rounded-full border-[2.5px] border-solid border-[var(--paper)] px-5 py-3 text-left text-[16px] font-bold uppercase leading-[1.4] text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)] disabled:cursor-default"
         >
           <Plus size={18} />
-          <span className="text-sm">steer…</span>
+          <span>steer...</span>
         </button>
       </aside>
 
       {/* Right panel — the playlist. */}
-      <section className="flex-1 overflow-y-auto p-10">
-        <h1 className="text-2xl font-semibold text-white/90">
+      <section className="relative z-10 w-full flex-1 overflow-y-auto p-6 md:p-10">
+        <h1 className="font-display max-w-3xl text-[40px] font-bold uppercase leading-none tracking-[-0.01em] text-[var(--paper)]">
           A playlist built from your memo
         </h1>
 
-        <p className="mt-6 text-xl font-medium text-indigo-300/90">
+        <p className="font-serif mt-6 max-w-3xl text-[32px] italic leading-[1.2] text-[var(--yellow)]">
           {PLAYLIST_TITLE}
         </p>
 
-        <div className="mt-12">
+        <div className="mt-10">
           <PlaylistFan />
         </div>
       </section>
