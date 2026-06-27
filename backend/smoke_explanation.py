@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 
+import requests
+
 import config
 import cyanite
 import explanation_builder
@@ -33,8 +35,13 @@ def main() -> None:
         print("跳过：.env 里没填 OPENAI_API_KEY")
         return
 
-    liked_tags = cyanite.model_tags(LIKED_ID, MODELS)
-    recommended_tags = cyanite.model_tags(RECOMMENDED_ID, MODELS)
+    try:
+        liked_tags = cyanite.model_tags(LIKED_ID, MODELS)
+        recommended_tags = cyanite.model_tags(RECOMMENDED_ID, MODELS)
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "unknown"
+        print(f"Cyanite 请求失败：HTTP {status}。请检查 CYANITE_API_KEY / 账号权限 / track id。")
+        return
     query_card = {
         "interpretation_plain": "Restrained, intimate night-drive music with minimal vocals.",
         "free_text_query": "lonely night drive restrained intimate low energy minimal vocals",
@@ -47,13 +54,18 @@ def main() -> None:
         "final_score": 0.91,
         "ranking_basis": "similar_score_fallback",
     }
-    explanation = explanation_builder.build_explanation(
-        "The listener tends to like calm, restrained, low-energy tracks for late-night focus.",
-        query_card,
-        liked_tags,
-        recommended_tags,
-        recommendation_meta,
-    )
+    try:
+        explanation = explanation_builder.build_explanation(
+            "The listener tends to like calm, restrained, low-energy tracks for late-night focus.",
+            query_card,
+            liked_tags,
+            recommended_tags,
+            recommendation_meta,
+        )
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "unknown"
+        print(f"OpenAI 请求失败：HTTP {status}。请检查 OPENAI_API_KEY / 模型权限。")
+        return
 
     print("liked:", cyanite.display(LIKED_ID))
     print("recommended:", cyanite.display(RECOMMENDED_ID))
