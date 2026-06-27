@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import requests
 
@@ -23,7 +24,7 @@ Explain:
 3. why it was selected from the recommendation path.
 
 Keep why_text concise: 2-4 sentences, user-facing, non-technical unless the evidence needs a tag name.
-When explanation_example is present, mention it as a concrete liked-track example. If it has title/artist fields, use them instead of an opaque id.
+When explanation_example is present, mention it as a concrete liked-track example. If it has title/artist fields, use them instead of an opaque id. If explanation_example.example_type is "session_source", say it was liked earlier in this session. If it is "historical_like", say it connects back to a track the listener liked in a previous session.
 """
 
 EXPLANATION_SCHEMA = {
@@ -50,25 +51,41 @@ EXPLANATION_SCHEMA = {
 DEFAULT_EXAMPLE_SIMILARITY_THRESHOLD = 0.85
 
 
+def extract_liked_track_ids_from_evidence(evidence_md: str) -> list[str]:
+    """Extract historical liked ids from evidence.md, newest first, de-duplicated."""
+    seen = set()
+    liked_ids = []
+    for line in reversed(evidence_md.splitlines()):
+        match = re.search(r"→\s*liked\s+(.+?)(?:\s+\(|$)", line)
+        if not match:
+            continue
+        for track_id in reversed([part.strip() for part in match.group(1).split(",")]):
+            if track_id and track_id != "-" and track_id not in seen:
+                seen.add(track_id)
+                liked_ids.append(track_id)
+    return liked_ids
+
+
 def select_explanation_example(liked_tracks: list[str],
                                recommendation_meta: dict,
-                               min_similarity: float = DEFAULT_EXAMPLE_SIMILARITY_THRESHOLD) -> dict | None:
+                               min_similarity: float = DEFAULT_EXAMPLE_SIMILARITY_THRESHOLD,
+                               historical_candidates: list[dict] | None = None) -> dict | None:
     """Pick a liked track as an explanation example only when similarity is strong."""
-    score = recommendation_meta.get("similar_score")
-    if not isinstance(score, int | float):
-        score = recommendation_meta.get("final_score")
-    if not isinstance(score, int | float) or score < min_similarity:
-        return None
+    score = _score_from(recommendation_meta)
     source_ids = _source_liked_tracks(recommendation_meta.get("source_liked_track"))
-    if not source_ids:
-        return None
-    liked = set(liked_tracks)
-    selected = next((track_id for track_id in source_ids if track_id in liked), source_ids[0])
-    return {
-        "track_id": selected,
-        "similar_score": float(score),
-        "selection_basis": "source_liked_track",
-    }
+    if isinstance(score, int | float) and score >= min_similarity and source_ids:
+        liked = set(liked_tracks)
+        selected = next((track_id for track_id in source_ids if track_id in liked), source_ids[0])
+        return {
+            "track_id": selected,
+            "example_type": "session_source",
+            "similar_score": float(score),
+            "selection_basis": "source_liked_track",
+        }
+    historical = _best_historical_candidate(historical_candidates or [], min_similarity)
+    if historical:
+        return historical
+    return None
 
 
 def build_explanation(profile_md: str,
@@ -155,6 +172,7 @@ def _build_user_prompt(profile_md: str,
         "explanation_example": explanation_example,
         "explanation_style_instruction": (
             "Explain recommended_track, not explanation_example. If explanation_example is present, use it only as a concrete previous liked-track example and compare shared Cyanite evidence. "
+            "Use explanation_example.example_type to distinguish whether the example came from the current session or previous-session evidence. "
             "If it is null, do not claim the recommendation resembles a specific liked track; explain using the current prompt, profile, recommended-track tags, and ranking metadata instead."
         ),
     }
@@ -170,7 +188,10 @@ def _fallback_explanation(query_card: dict,
     example_text = ""
     if explanation_example:
         label = _example_label(explanation_example)
-        example_text = f" It is close enough to a track you liked before ({label}) to use that as a concrete taste example."
+        if explanation_example.get("example_type") == "historical_like":
+            example_text = f" It is close enough to a track you liked in a previous session ({label}) to use that as a concrete taste example."
+        else:
+            example_text = f" It is close enough to a track you liked earlier in this session ({label}) to use that as a concrete taste example."
     return {
         "why_text": (
             f"This track fits your current search for {query}. "
@@ -190,6 +211,40 @@ def _source_liked_tracks(source: object) -> list[str]:
     if isinstance(source, list):
         return [str(part).strip() for part in source if str(part).strip()]
     return []
+
+
+def _best_historical_candidate(candidates: list[dict], min_similarity: float) -> dict | None:
+    ranked = []
+    for candidate in candidates:
+        score = _score_from(candidate)
+        if not isinstance(score, int | float) or score < min_similarity:
+            continue
+        track_id = str(candidate.get("track_id") or candidate.get("cyanite_id") or "").strip()
+        if not track_id:
+            continue
+        ranked.append({**candidate, "track_id": track_id, "similar_score": float(score)})
+    if not ranked:
+        return None
+    best = max(ranked, key=lambda c: c["similar_score"])
+    example = {
+        "track_id": best["track_id"],
+        "example_type": "historical_like",
+        "similar_score": best["similar_score"],
+        "selection_basis": "historical_similarity",
+    }
+    for field in ("title", "artist", "similarity_evidence"):
+        if best.get(field):
+            example[field] = best[field]
+    return example
+
+
+def _score_from(row: dict) -> float | None:
+    score = row.get("similar_score")
+    if not isinstance(score, int | float):
+        score = row.get("score")
+    if not isinstance(score, int | float):
+        score = row.get("final_score")
+    return float(score) if isinstance(score, int | float) else None
 
 
 def _example_label(example: dict) -> str:

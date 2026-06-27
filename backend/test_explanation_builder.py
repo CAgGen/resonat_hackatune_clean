@@ -35,6 +35,7 @@ META = {
 
 EXAMPLE = {
     "track_id": "liked_123",
+    "example_type": "session_source",
     "similar_score": 0.91,
     "selection_basis": "source_liked_track",
 }
@@ -69,6 +70,67 @@ def test_select_explanation_example_returns_none_below_similarity_threshold():
         liked_tracks=["liked_123"],
         recommendation_meta=low_meta,
     ) is None
+
+
+def test_extract_liked_track_ids_from_evidence_preserves_recent_order_without_duplicates():
+    evidence_md = """# evidence · demo
+
+## 反馈记录
+- 「night drive」→ liked hist_1, hist_2   (2026-06-27T20:00:00)
+- 「quiet focus」→ liked hist_2, hist_3   (2026-06-27T21:00:00)
+"""
+
+    assert explanation_builder.extract_liked_track_ids_from_evidence(evidence_md) == [
+        "hist_3",
+        "hist_2",
+        "hist_1",
+    ]
+
+
+def test_select_explanation_example_uses_historical_like_when_no_session_source():
+    historical_candidates = [
+        {"track_id": "hist_1", "similar_score": 0.7},
+        {"track_id": "hist_2", "similar_score": 0.89, "title": "Old Light", "artist": "Past Self"},
+    ]
+
+    example = explanation_builder.select_explanation_example(
+        liked_tracks=[],
+        recommendation_meta={"ranking_basis": "free_text"},
+        historical_candidates=historical_candidates,
+    )
+
+    assert example == {
+        "track_id": "hist_2",
+        "example_type": "historical_like",
+        "similar_score": 0.89,
+        "selection_basis": "historical_similarity",
+        "title": "Old Light",
+        "artist": "Past Self",
+    }
+
+
+def test_select_explanation_example_can_use_historical_when_session_source_is_below_threshold():
+    low_meta = {**META, "similar_score": 0.62, "final_score": 0.62}
+
+    example = explanation_builder.select_explanation_example(
+        liked_tracks=["liked_123"],
+        recommendation_meta=low_meta,
+        historical_candidates=[{"track_id": "hist_2", "similar_score": 0.9}],
+    )
+
+    assert example["track_id"] == "hist_2"
+    assert example["example_type"] == "historical_like"
+
+
+def test_select_explanation_example_prefers_session_source_over_historical_like():
+    example = explanation_builder.select_explanation_example(
+        liked_tracks=["liked_123"],
+        recommendation_meta=META,
+        historical_candidates=[{"track_id": "hist_2", "similar_score": 0.99}],
+    )
+
+    assert example["track_id"] == "liked_123"
+    assert example["example_type"] == "session_source"
 
 
 def test_fallback_explanation_is_grounded_and_english(monkeypatch):
@@ -142,6 +204,7 @@ def test_openai_explanation_request_contains_grounding_inputs(monkeypatch):
     assert "73rd Moon" in user_input
     assert "recommended_track" in user_input
     assert "Afterwork" in user_input
+    assert "example_type" in user_input
     assert "Explain recommended_track, not explanation_example" in user_input
     assert result["why_text"].startswith("This track fits")
     assert result["evidence"][1]["source"] == "ranking"
