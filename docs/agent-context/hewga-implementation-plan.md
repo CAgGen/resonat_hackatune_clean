@@ -161,6 +161,47 @@ First implementation target:
 - Build the prompt template after the intent and ranking data structures stabilize.
 - Use fixture tag payloads before depending on live Tagging API responses.
 
+## Future Feature: Explainable Surprise Recommendations
+
+Goal: occasionally recommend a track that is not the closest match to the user's existing taste, while keeping the surprise reasonable, audio-grounded, and proactively explained.
+
+Product motivation:
+
+- Avoid trapping the listener in a narrow taste bubble.
+- Give users a controlled opportunity to discover music just outside their established pattern.
+- Make the product stance visible: discovery should not only reinforce what the user already knows they like.
+
+Core behavior:
+
+- Add a small number of "surprise" recommendations to the list only when they still fit the current whiteboard intent.
+- A surprise track should be different from the user's liked tracks in at least one meaningful Cyanite dimension, such as mood, instrumentation, genre, energy, era, or vocal profile.
+- The surprise must remain explainable through Cyanite tags and the current Query Card. It should never be random, popularity-based, or collaborative-filtering-based.
+- The UI should proactively label the recommendation as exploratory instead of waiting for the user to ask "Why this track?".
+
+Example user-facing explanation:
+
+> This one is a small step outside your usual sound. You often like restrained, low-energy instrumental tracks, and this keeps that late-night focus use case, but adds a brighter synth texture and more movement. I included it as a controlled discovery pick rather than a pure similarity match.
+
+Likely implementation direction:
+
+- Keep the normal refill ranker focused on similarity.
+- Add a separate exploration selector that works over candidate tracks already retrieved through Cyanite search or similarity calls.
+- Use deterministic tag contrast, not an LLM, to choose surprise candidates.
+- Use the Explanation Builder to generate the proactive explanation, with explicit inputs for:
+  - current Query Card,
+  - user profile,
+  - representative liked-track tags,
+  - surprise-track tags,
+  - shared attributes,
+  - intentionally different attributes.
+
+Guardrails:
+
+- Surprise recommendations should be occasional, not the default.
+- They must still satisfy the user's current prompt strongly enough to be defensible.
+- They must not use popularity or co-listening signals.
+- They should be easy to dismiss; a dislike should reduce this exploration direction.
+
 ## Recommended Work Order
 
 1. Confirm official OpenAI and Cyanite API response/input formats.
