@@ -31,6 +31,13 @@ def _fake_seams(monkeypatch, tmp_path):
     monkeypatch.setattr(orch.cyanite, "find_similar_multi", fake_multi)
     monkeypatch.setattr(orch.cyanite, "display",
                         lambda cid: {"track_id": cid, "cyanite_id": cid, "title": "T", "artist": "A"})
+    monkeypatch.setattr(orch.intent_compiler, "compile_query_card",
+                        lambda posts, profile_md="": {
+                            "interpretation_plain": "test intent",
+                            "free_text_query": "test intent",
+                            "soft_targets": [],
+                            "negatives": [],
+                        })
     monkeypatch.setattr(orch.memory, "_ev_path", lambda u: tmp_path / f"{u}.evidence.md")
     monkeypatch.setattr(orch.memory, "_mem_path", lambda u: tmp_path / f"{u}.memory.md")
     return calls
