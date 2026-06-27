@@ -33,6 +33,43 @@ META = {
     "ranking_basis": "similar_score_fallback",
 }
 
+EXAMPLE = {
+    "track_id": "liked_123",
+    "similar_score": 0.91,
+    "selection_basis": "source_liked_track",
+}
+
+DISPLAY_EXAMPLE = {
+    **EXAMPLE,
+    "title": "73rd Moon",
+    "artist": "Reno Project",
+}
+
+RECOMMENDED_TRACK = {
+    "track_id": "161536",
+    "cyanite_id": "libtr_afterwork",
+    "title": "Afterwork",
+    "artist": "Reno Project",
+}
+
+
+def test_select_explanation_example_uses_source_liked_track_above_threshold():
+    example = explanation_builder.select_explanation_example(
+        liked_tracks=["liked_000", "liked_123"],
+        recommendation_meta=META,
+    )
+
+    assert example == EXAMPLE
+
+
+def test_select_explanation_example_returns_none_below_similarity_threshold():
+    low_meta = {**META, "similar_score": 0.62, "final_score": 0.62}
+
+    assert explanation_builder.select_explanation_example(
+        liked_tracks=["liked_123"],
+        recommendation_meta=low_meta,
+    ) is None
+
 
 def test_fallback_explanation_is_grounded_and_english(monkeypatch):
     monkeypatch.setattr(config, "OPENAI_API_KEY", "", raising=False)
@@ -43,9 +80,12 @@ def test_fallback_explanation_is_grounded_and_english(monkeypatch):
         LIKED_TAGS,
         RECOMMENDED_TAGS,
         META,
+        DISPLAY_EXAMPLE,
+        RECOMMENDED_TRACK,
     )
 
     assert "fits your current search" in result["why_text"]
+    assert "73rd Moon by Reno Project" in result["why_text"]
     assert "Cyanite acoustic similarity" in result["why_text"]
     assert result["evidence"][0]["source"] == "ranking"
 
@@ -84,6 +124,8 @@ def test_openai_explanation_request_contains_grounding_inputs(monkeypatch):
         LIKED_TAGS,
         RECOMMENDED_TAGS,
         META,
+        DISPLAY_EXAMPLE,
+        RECOMMENDED_TRACK,
     )
 
     assert captured["url"].endswith("/responses")
@@ -95,5 +137,11 @@ def test_openai_explanation_request_contains_grounding_inputs(monkeypatch):
     assert "MoodSimpleV2" in user_input
     assert "similar_score" in user_input
     assert "similar_score_fallback" in user_input
+    assert "explanation_example" in user_input
+    assert "liked_123" in user_input
+    assert "73rd Moon" in user_input
+    assert "recommended_track" in user_input
+    assert "Afterwork" in user_input
+    assert "Explain recommended_track, not explanation_example" in user_input
     assert result["why_text"].startswith("This track fits")
     assert result["evidence"][1]["source"] == "ranking"

@@ -54,6 +54,9 @@ def main() -> None:
         "final_score": 0.91,
         "ranking_basis": "similar_score_fallback",
     }
+    explanation_example = explanation_builder.select_explanation_example([LIKED_ID], recommendation_meta)
+    if explanation_example:
+        explanation_example = {**explanation_example, **cyanite.display(explanation_example["track_id"])}
     try:
         explanation = explanation_builder.build_explanation(
             "The listener tends to like calm, restrained, low-energy tracks for late-night focus.",
@@ -61,6 +64,8 @@ def main() -> None:
             liked_tags,
             recommended_tags,
             recommendation_meta,
+            explanation_example,
+            cyanite.display(RECOMMENDED_ID),
         )
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else "unknown"
