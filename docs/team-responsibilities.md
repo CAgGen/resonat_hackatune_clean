@@ -2,6 +2,8 @@
 
 This document captures the current responsibility boundary for the teammate owning the LLM prompt, refill-ranking, and personalized explanation work. It is intentionally product-facing rather than implementation-specific, so coding agents can detect overlap risk when helping other teammates.
 
+This is not a repo-wide agent instruction file. Treat it as owner-specific context and coordination guidance.
+
 For the overall product flow, use `PRD-night.md` as the source of truth.
 
 ## Owner Scope
