@@ -87,6 +87,8 @@ def test_dislike_with_one_like_uses_single_seed(monkeypatch, tmp_path):
     ids = [c["track_id"] for c in body["cards"]]
     assert "libtr_1" not in ids                            # 被移除
     assert "sim_0" in ids                                  # 最高 similar_score 回填
+    refill = next(c for c in body["cards"] if c["track_id"] == "sim_0")
+    assert "final_score" not in refill and "ranking_basis" not in refill  # debug metadata 不给前端
     assert len(ids) == orch.config.VISIBLE_N               # 槽位数不变
 
 

@@ -93,15 +93,14 @@ def _backfill(s: dict) -> dict | None:
     再挑 score 最高、未被踩、未在列表的那首；没有 liked 种子则用 freeText backlog 补位。"""
     if s["liked_tracks"]:
         _expand_pool(s)
-        pool = [p for p in s["candidate_pool"]
-                if p["cyanite_id"] not in s["disliked_tracks"]
-                and p["cyanite_id"] not in _visible_ids(s)]
-        if pool:
-            best = max(pool, key=lambda p: p["similar_score"] or 0)
-            s["candidate_pool"].remove(best)
-            # ponytail: 按 similar_score 排。Cyanite 没有"单曲↔prompt 匹配分"端点；
-            #           若日后有，给候选填 prompt_match_score 并改按它排。
-            return _card(best["cyanite_id"], best["similar_score"], "similar")
+        best = rerank.rank_refill_candidates(
+            s["candidate_pool"],
+            visible_ids=_visible_ids(s),
+            disliked_ids=set(s["disliked_tracks"]),
+        )
+        if best:
+            s["candidate_pool"] = [p for p in s["candidate_pool"] if p["cyanite_id"] != best["cyanite_id"]]
+            return _card(best["cyanite_id"], best["final_score"], "similar")
     if s["free_text_backlog"]:
         return s["free_text_backlog"].pop(0)
     return None
