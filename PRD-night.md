@@ -159,7 +159,7 @@ flowchart TD
 | `POST /feedback` | `{session_id, track_id, verdict}` | `{cards[], candidate_pool_size}` | like 建相似候选池；dislike 移除并回填；薄重排 |
 | `GET /your-sound` | `{session_id}` | 记忆摘要 | 可选，演"越用越准" |
 
-**会话状态 + 持久化（一晚 SQLite 够用）**
+**会话状态（内存 dict，会话结束就扔，不落盘）**
 ```
 session: id, user_id,
          whiteboard_posts[]  // initial prompt + follow-up requirements
