@@ -1,7 +1,13 @@
 """基础设施 · Cyanite REST 封装。全项目唯一碰网络的地方。
 
 编排层只调这里的函数；测试时 monkeypatch 本模块即可离线跑。
-REST 形态取自 notebooks/cyanite_model_outputs.ipynb。
+REST 形态取自 notebooks/cyanite_model_outputs.ipynb 与 guides/ 里的官方 PDF。
+
+四个官方端点 ↔ 本模块函数：
+  #1 GET  /v1/library-tracks/{id}/models            -> model_tags()      (tagging)
+  #2 POST /v1/private-alpha/library-tracks/search   -> search_by_prompt() (prompt 搜索)
+  #3 POST /v1/private-alpha/library-tracks/{id}/similar -> find_similar()  (单种子)
+  #4 POST /v1/private-alpha/library-tracks/similar  -> find_similar_multi() (≤10 种子)
 """
 from __future__ import annotations
 import csv
@@ -63,9 +69,18 @@ def search_by_prompt(query: str, limit: int = config.SEARCH_LIMIT) -> list[dict]
 
 
 def find_similar(cyanite_id: str, limit: int = config.SIMILAR_LIMIT) -> list[dict]:
-    """similarById：一首曲 -> 声学相似曲。"""
+    """#3 similarById（单种子）：一首曲 -> 声学相似曲。"""
     r = _session.post(f"{config.CYANITE_BASE_URL}/private-alpha/library-tracks/{cyanite_id}/similar",
                       params={"limit": limit}, json={}, timeout=60)
+    r.raise_for_status()
+    return normalize(r.json())
+
+
+def find_similar_multi(cyanite_ids: list[str], limit: int = config.SIMILAR_LIMIT) -> list[dict]:
+    """#4 similar（多种子，≤10）：一组曲 -> 综合声学相似曲。"""
+    body = {"tracks": [{"id": cid} for cid in cyanite_ids[:10]]}
+    r = _session.post(f"{config.CYANITE_BASE_URL}/private-alpha/library-tracks/similar",
+                      params={"limit": limit}, json=body, timeout=60)
     r.raise_for_status()
     return normalize(r.json())
 
