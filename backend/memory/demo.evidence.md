@@ -54,3 +54,12 @@
 - 👍 `libtr_01KVX8PSBT9V53YZMS` · 「lonely lonely lonly」 · feel: ethereal, calm, flowing · 2026-06-28T07:52:02
 - 👍 `libtr_01KVWW91C5R66T4CJM` · 「lonely lonely lonly」 · feel: dark, sad, ethereal, mysterious, flowing · 2026-06-28T07:52:02
 - 👍 `libtr_01KVXJCN61V9Z239R1` · 「lonely lonely lonly」 · feel: dark, ethereal, calm, flowing · 2026-06-28T07:52:02
+- 👍 `libtr_01KVWYHSTV16BTKE3Q` · 「happy; quick」 · feel: happy, chill, luxurious, groovy · 2026-06-28T08:08:05
+- 👍 `libtr_01KVWYXYYR4ERETB7G` · 「happy; quick」 · feel: happy, chill, playful, bouncing · 2026-06-28T08:08:05
+- 👍 `libtr_01KVXCBH8BE9B35HZ4` · 「happy; quick」 · feel: dark, energetic, ethereal, running, robotic · 2026-06-28T08:08:05
+- 👍 `libtr_01KVX446EYK1TPT2T0` · 「happy; quick」 · feel: happy, playful, bouncing · 2026-06-28T08:08:05
+- 👍 `libtr_01KVX446FA0XSHYTQS` · 「happy; quick」 · feel: happy, uplifting, epic, playful, bouncing · 2026-06-28T08:08:05
+- 👍 `libtr_01KVWTQNWNGC02PJF8` · 「happy; quick」 · feel: happy, playful, stomping, bouncing, driving · 2026-06-28T08:08:05
+- 👍 `libtr_01KVWW9PBXYFCZ227Z` · 「dog」 · feel: chill, mysterious, sparkling, magical, ethereal, playful, robotic, pulsing, steady, running · 2026-06-28T08:20:33
+- 👍 `libtr_01KVXDHJK4RSC2DGJC` · 「dog」 · feel: chill, sparkling, flowing, groovy · 2026-06-28T08:20:33
+- 👍 `libtr_01KVX8NEW2YSV9F9JK` · 「dog」 · feel: calm, ethereal, chill, sparkling, warm, flowing, pulsing · 2026-06-28T08:20:33

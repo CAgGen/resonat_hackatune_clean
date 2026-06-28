@@ -29,6 +29,7 @@ VISIBLE_N = 5        # 推荐列表一次展示几首
 SEARCH_LIMIT = 20    # freeText 召回上限
 SIMILAR_LIMIT = 10   # like/refill similarById 召回上限
 PROFILE_REFILL_LIMIT = 10  # 防沉迷 dislike 后按用户画像语义召回上限
+SOUNDS_LIKE_YOU_LIMIT = 5  # 「听起来像你」候选数，不喜欢逐张翻到耗尽
 EXPLAIN_SIMILAR_LIMIT = 50
 EXPLAIN_TAG_MODELS = [
     "MainGenreV2",

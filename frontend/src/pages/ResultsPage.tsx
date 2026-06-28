@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import GrainientBackground from "../components/GrainientBackground";
+import MusicCard from "../components/MusicCard";
 import NoteCard from "../components/NoteCard";
 import PlaylistFan from "../components/PlaylistFan";
 import Stack from "../components/Stack";
@@ -94,7 +95,7 @@ const LikedSongsShelf = ({
                   <button
                     type="button"
                     onClick={() => (isPlaying ? stop() : play(track.id))}
-                    className="font-display rounded-full border border-[var(--paper)] px-2.5 py-1 text-[11px] font-bold uppercase leading-none text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)]"
+                    className="font-display inline-flex items-center rounded-full border border-[var(--paper)] px-2.5 py-1 text-[11px] font-bold uppercase leading-none text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)]"
                   >
                     {isPlaying ? "stop" : "preview"}
                   </button>
@@ -186,6 +187,56 @@ const MemoryProfile = ({ md }: { md: string }) => (
   </div>
 );
 
+// 「sounds like you」专属卡片：功能与播放列表里的五张完全一致——hover 预览、点开看
+// 「为什么像你」、喜欢入库、不喜欢翻下一张、可下载。逐张消费，翻完即止。
+const SoundsLikeYouCard = ({
+  card,
+  modalOpen,
+  onOpen,
+  onLike,
+  onDismiss,
+}: {
+  card: RecommendationCard;
+  modalOpen: boolean;
+  onOpen: () => void;
+  onLike: () => void;
+  onDismiss: () => void;
+}) => {
+  const track = useMemo(() => toTrack(card), [card]);
+  const playerTracks = useMemo(() => [track], [track]);
+  const { playingId, play, stop } = useAudioPlayer(playerTracks);
+  const numericId = (track.trackId ?? track.id).match(/^\d+$/)
+    ? track.trackId ?? track.id
+    : "";
+
+  return (
+    <div
+      onMouseEnter={() => play(track.id)}
+      onMouseLeave={() => {
+        // Opening the why-modal triggers mouseleave — keep playing then.
+        if (!modalOpen) stop();
+      }}
+    >
+      <MusicCard
+        title={track.title}
+        artist={track.artist}
+        cover={track.cover}
+        isPlaying={playingId === track.id}
+        badge="✦ this is you"
+        downloadUrl={numericId ? downloadUrl(numericId) : undefined}
+        onOpen={() => {
+          play(track.id);
+          onOpen();
+        }}
+        onLike={(liked) => {
+          if (liked) onLike();
+        }}
+        onDismiss={onDismiss}
+      />
+    </div>
+  );
+};
+
 const ResultsPage = () => {
   const {
     notes,
@@ -199,7 +250,9 @@ const ResultsPage = () => {
     explanationsByTrackId,
     completeRound,
     memoryMd,
-    soundsLikeYouCard,
+    soundsLikeYouCards,
+    likeSoundsLikeYou,
+    dismissSoundsLikeYou,
     isFinishingRound,
     resetRound,
   } = useNotes();
@@ -268,21 +321,23 @@ const ResultsPage = () => {
     [likedTracks],
   );
 
+  // 逐张消费：当前永远是候选队列的第一张。
+  const slyCard = soundsLikeYouCards[0] ?? null;
   const slyTrack = useMemo(
-    () => (soundsLikeYouCard ? toTrack(soundsLikeYouCard) : null),
-    [soundsLikeYouCard],
+    () => (slyCard ? toTrack(slyCard) : null),
+    [slyCard],
   );
-  const slyExplanation = soundsLikeYouCard
-    ? explanationsByTrackId[`sly:${soundsLikeYouCard.cyanite_id}`]
+  const slyExplanation = slyCard
+    ? explanationsByTrackId[`sly:${slyCard.cyanite_id}`]
     : undefined;
 
   const openSlyModal = async () => {
-    if (!soundsLikeYouCard) return;
+    if (!slyCard) return;
     setSlyModalOpen(true);
     if (slyExplanation) return;
     setSlyLoading(true);
     try {
-      await explainSoundsLikeYouTrack(soundsLikeYouCard.cyanite_id);
+      await explainSoundsLikeYouTrack(slyCard.cyanite_id);
     } catch {
       // 解释失败：modal 仍开着，TrackReasonModal 退到空文本。
     } finally {
@@ -404,10 +459,7 @@ const ResultsPage = () => {
               onLike={(track) => sendFeedback(track.id, "like", feedbackMode)}
               onUnlike={(track) => unlikeTrack(track.id)}
               onDismiss={(track) => sendFeedback(track.id, "dislike", feedbackMode)}
-              onExplain={async (track) => {
-                const result = await explainTrack(track.id);
-                return result.why_text;
-              }}
+              onExplain={(track) => explainTrack(track.id)}
             />
           ) : (
             <p className="font-serif text-[24px] italic text-[var(--paper)] opacity-80">
@@ -444,40 +496,20 @@ const ResultsPage = () => {
               <div className="min-w-0 lg:flex-1">
                 <MemoryProfile md={memoryMd} />
               </div>
-              {soundsLikeYouCard && slyTrack && (
+              {slyCard && (
                 <div className="w-full shrink-0 lg:w-60">
                   <p className="font-display mb-2 text-[12px] font-bold uppercase tracking-[0.06em] text-[var(--yellow)]">
                     sounds like you
                   </p>
-                  {/* 专属卡片：点开 → 基于画像解释「为什么这听起来像你本人」。 */}
-                  <button
-                    type="button"
-                    onClick={() => void openSlyModal()}
-                    aria-label={`Why ${slyTrack.title} sounds like you`}
-                    className="group flex w-full flex-col overflow-hidden rounded-[6px] border-[2.5px] border-solid border-[var(--yellow)] bg-[var(--paper)] text-left text-[var(--ink)] shadow-[var(--shadow-block)] outline-none transition-transform hover:-translate-y-1"
-                  >
-                    <div className="relative aspect-square bg-[var(--color-border)]">
-                      <img
-                        src={slyTrack.cover}
-                        alt={`${slyTrack.title} cover art`}
-                        className="absolute inset-0 h-full w-full object-cover"
-                      />
-                      <span className="font-display absolute bottom-2 left-2 rounded-full border border-[var(--ink)] bg-[var(--yellow)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--ink)]">
-                        ✦ this is you
-                      </span>
-                    </div>
-                    <div className="flex flex-1 flex-col px-3 pb-3 pt-3">
-                      <div className="font-display line-clamp-2 text-[16px] font-bold leading-tight">
-                        {slyTrack.title}
-                      </div>
-                      <div className="font-serif mt-0.5 truncate text-[12px] italic opacity-60">
-                        by {slyTrack.artist}
-                      </div>
-                      <span className="font-display mt-3 text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--ink)] opacity-50 transition-opacity group-hover:opacity-90">
-                        tap for why →
-                      </span>
-                    </div>
-                  </button>
+                  {/* 功能与上面五张一致：hover 试听 / 点开看为什么 / 喜欢入库 / 不喜欢翻下一张 / 下载。 */}
+                  <SoundsLikeYouCard
+                    key={slyCard.cyanite_id}
+                    card={slyCard}
+                    modalOpen={slyModalOpen}
+                    onOpen={() => void openSlyModal()}
+                    onLike={() => likeSoundsLikeYou(slyCard)}
+                    onDismiss={() => dismissSoundsLikeYou(slyCard)}
+                  />
                 </div>
               )}
             </div>

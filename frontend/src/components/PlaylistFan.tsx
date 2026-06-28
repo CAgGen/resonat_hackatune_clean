@@ -4,6 +4,7 @@ import MusicCard from "./MusicCard";
 import TrackReasonModal from "./TrackReasonModal";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
 import { SAMPLE_TRACKS, downloadUrl, type SampleTrack } from "../sampleTracks";
+import type { ExplanationResponse, MoodSegment } from "../api";
 
 const SLOTS = [
   { x: -312, y: 58, rot: -16, z: 8 },
@@ -34,7 +35,7 @@ interface PlaylistFanProps {
   onLike?: (track: SampleTrack) => Promise<void> | void;
   onUnlike?: (track: SampleTrack) => void;
   onDismiss?: (track: SampleTrack) => Promise<void> | void;
-  onExplain?: (track: SampleTrack) => Promise<string>;
+  onExplain?: (track: SampleTrack) => Promise<ExplanationResponse>;
 }
 
 const PlaylistFan = ({
@@ -50,6 +51,7 @@ const PlaylistFan = ({
   const [hovered, setHovered] = useState<number | null>(null);
   const [selected, setSelected] = useState<SampleTrack | null>(null);
   const [selectedReason, setSelectedReason] = useState("");
+  const [selectedSegments, setSelectedSegments] = useState<MoodSegment[]>([]);
   const [isReasonLoading, setIsReasonLoading] = useState(false);
   const [fanScale, setFanScale] = useState(1);
 
@@ -67,7 +69,7 @@ const PlaylistFan = ({
         .filter((track): track is SampleTrack => Boolean(track)),
     [cards],
   );
-  const { playingId, play, stop } = useAudioPlayer(visibleTracks, PRELOAD_ORDER);
+  const { playingId, play, stop, seek } = useAudioPlayer(visibleTracks, PRELOAD_ORDER);
 
   const activeIndex = hovered ?? CENTER_SLOT;
 
@@ -190,9 +192,13 @@ const PlaylistFan = ({
     play(track.id);
     setSelected(track);
     setSelectedReason("");
+    setSelectedSegments([]);
     setIsReasonLoading(true);
     void onExplain?.(track)
-      .then((reason) => setSelectedReason(reason))
+      .then((result) => {
+        setSelectedReason(result.why_text);
+        setSelectedSegments(result.segments ?? []);
+      })
       .catch(() =>
         setSelectedReason(
           "The detailed explanation is still loading. This track came from your confirmed sound brief and Cyanite audio matching.",
@@ -287,6 +293,8 @@ const PlaylistFan = ({
             cover: selected.cover,
           }}
           reasonText={selectedReason}
+          segments={selectedSegments}
+          onSeek={(seconds) => selected && seek(selected.id, seconds)}
           isLoading={isReasonLoading}
           onClose={() => {
             modalOpenRef.current = false;

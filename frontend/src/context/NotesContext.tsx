@@ -41,7 +41,9 @@ interface NotesContextValue {
   isBuilding: boolean;
   cardsError: string;
   memoryMd: string;
-  soundsLikeYouCard: RecommendationCard | null;
+  soundsLikeYouCards: RecommendationCard[];
+  likeSoundsLikeYou: (card: RecommendationCard) => void;
+  dismissSoundsLikeYou: (card: RecommendationCard) => void;
   isFinishingRound: boolean;
   resetRound: () => void;
   confirmSound: () => Promise<boolean>;
@@ -75,8 +77,9 @@ export const NotesProvider = ({ children }: { children: ReactNode }) => {
   const [isBuilding, setIsBuilding] = useState(false);
   const [cardsError, setCardsError] = useState("");
   const [memoryMd, setMemoryMd] = useState("");
-  const [soundsLikeYouCard, setSoundsLikeYouCard] =
-    useState<RecommendationCard | null>(null);
+  const [soundsLikeYouCards, setSoundsLikeYouCards] = useState<
+    RecommendationCard[]
+  >([]);
   const [isFinishingRound, setIsFinishingRound] = useState(false);
   const [explanationsByTrackId, setExplanationsByTrackId] = useState<
     Record<string, ExplanationResponse>
@@ -163,10 +166,10 @@ export const NotesProvider = ({ children }: { children: ReactNode }) => {
     try {
       const result = await finishRound(sessionId);
       setMemoryMd(result.memory_md);
-      // sounds like you：用刚写好的画像搜一首「AI 眼中的你本人」。失败不影响完成本轮。
+      // sounds like you：用刚写好的画像搜一小串「AI 眼中的你本人」候选。失败不影响完成本轮。
       soundsLikeYou()
-        .then((res) => setSoundsLikeYouCard(res.card))
-        .catch(() => setSoundsLikeYouCard(null));
+        .then((res) => setSoundsLikeYouCards(res.cards))
+        .catch(() => setSoundsLikeYouCards([]));
       return result.memory_md;
     } finally {
       setIsFinishingRound(false);
@@ -186,7 +189,7 @@ export const NotesProvider = ({ children }: { children: ReactNode }) => {
     setIsBuilding(false);
     setCardsError("");
     setMemoryMd("");
-    setSoundsLikeYouCard(null);
+    setSoundsLikeYouCards([]);
     setIsFinishingRound(false);
     setExplanationsByTrackId({});
   };
@@ -219,6 +222,23 @@ export const NotesProvider = ({ children }: { children: ReactNode }) => {
       });
     }
   };
+
+  // 「听起来像你」逐张翻牌：喜欢就进 liked songs，翻到下一张；不喜欢直接翻下一张。
+  // 翻完候选即止（不再补歌）。它不属于本轮 session，所以不打 /feedback。
+  const advanceSoundsLikeYou = (cyaniteId: string) =>
+    setSoundsLikeYouCards((prev) =>
+      prev.filter((card) => card.cyanite_id !== cyaniteId),
+    );
+
+  const likeSoundsLikeYou = (card: RecommendationCard) => {
+    setLikedCards((prev) =>
+      prev.some((c) => c.cyanite_id === card.cyanite_id) ? prev : [...prev, card],
+    );
+    advanceSoundsLikeYou(card.cyanite_id);
+  };
+
+  const dismissSoundsLikeYou = (card: RecommendationCard) =>
+    advanceSoundsLikeYou(card.cyanite_id);
 
   const unlikeTrack = (trackId: string) => {
     setLikedCards((prev) =>
@@ -294,7 +314,9 @@ export const NotesProvider = ({ children }: { children: ReactNode }) => {
     isBuilding,
     cardsError,
     memoryMd,
-    soundsLikeYouCard,
+    soundsLikeYouCards,
+    likeSoundsLikeYou,
+    dismissSoundsLikeYou,
     isFinishingRound,
     resetRound,
     confirmSound,

@@ -43,6 +43,8 @@ Keep why_text concise: 2-4 sentences, user-facing, non-technical unless the evid
 Write why_text as plain prose. Do not use any markdown: no asterisks, bold, bullet points, or headings (the UI renders raw text, so those symbols would show literally).
 When explanation_example is present, mention it as a concrete liked-track example. If it has title/artist fields, use them instead of an opaque id. If explanation_example.example_type is "session_source", say it was liked earlier in this session. If it is "historical_like", say it connects back to a track already in the listener's liked history.
 If recommendation_meta.source is "similar", explain the shared musical evidence between recommended_track and explanation_example. If recommendation_meta.source is "profile_semantic", explain why recommended_track is close to the supplied user_profile; do not claim it came from a specific liked track unless explanation_example is present.
+
+The "surprise" source is handled deterministically before this prompt is ever used, so you will not receive it here.
 """
 
 EXPLANATION_SCHEMA = {
@@ -67,6 +69,27 @@ EXPLANATION_SCHEMA = {
 }
 
 DEFAULT_EXAMPLE_SIMILARITY_THRESHOLD = 0.0  # ponytail: threshold disabled; any positive-score source/historical track can explain
+
+
+def mood_timeline(recommended_tags: dict, max_points: int = 6) -> list[dict]:
+    """从已抓取的 MoodSimpleV2 segments 里提取「主导情绪随时间」时间轴，给前端做角标。
+
+    每个时间点取 argmax 情绪，折叠连续相同段 → 每次情绪切换落一个脚注 {t, label}。
+    时间戳直接来自 Cyanite，零编造。拿不到 segments 就返回空（前端不渲染角标）。"""
+    item = next((i for i in recommended_tags.get("items", [])
+                 if str(i.get("version", "")).startswith("MoodSimpleV2")), None)
+    seg = (item or {}).get("segments") or {}
+    ts, vals = seg.get("timestampsSeconds"), seg.get("values")
+    if not isinstance(ts, list) or not isinstance(vals, dict) or not vals:
+        return []
+    moods = list(vals)
+    timeline, prev = [], None
+    for i, t in enumerate(ts):
+        top = max(moods, key=lambda m: vals[m][i] if i < len(vals[m]) else 0)
+        if top != prev:
+            timeline.append({"t": float(t), "label": top})
+            prev = top
+    return timeline[:max_points]
 
 
 def extract_liked_track_ids_from_evidence(evidence_md: str) -> list[str]:
@@ -143,6 +166,10 @@ def build_explanation(profile_md: str,
                       explanation_example: dict | None = None,
                       recommended_track: dict | None = None) -> dict:
     """Return an English explanation grounded in provided Cyanite/user evidence."""
+    # 惊喜卡：固定写死这段「special treat」文案，不走 LLM。用户必须每次都看到我们的良苦用心，
+    # 不能让模型改写或 429 把它吞掉。tag A 从画像里抽，让对比落到 ta 自己的口味上。
+    if recommendation_meta.get("source") == "surprise":
+        return _surprise_explanation(profile_md, query_card, recommendation_meta)
     if not config.OPENAI_API_KEY:
         return _fallback_explanation(query_card, recommendation_meta, explanation_example)
     try:
@@ -228,6 +255,54 @@ def _build_user_prompt(profile_md: str,
         ),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+# 从画像里抽「贯穿的核心感觉」那行的头几个标签当 tag A；抽不到就退到频次光谱行；
+# 再抽不到就空（文案退化为「your usual taste」泛指）。
+_CORE_TASTE_RE = re.compile(r"贯穿的核心感觉[:：]\s*(.+)")
+_SPECTRUM_RE = re.compile(r"感觉光谱[^:：]*[:：]\s*(.+)")
+_TAG_SPLIT_RE = re.compile(r"[、,，]\s*")
+
+
+def _dominant_taste_tags(profile_md: str, limit: int = 2) -> list[str]:
+    text = profile_md or ""
+    match = _CORE_TASTE_RE.search(text) or _SPECTRUM_RE.search(text)
+    if not match:
+        return []
+    tags = []
+    for raw in _TAG_SPLIT_RE.split(match.group(1).strip()):
+        tag = re.split(r"\s*[×x]\s*", raw.strip())[0].strip("*` ").strip()  # 去掉 "flowing ×12" 的计数
+        if tag:
+            tags.append(tag)
+        if len(tags) >= limit:
+            break
+    return tags
+
+
+def _surprise_explanation(profile_md: str, query_card: dict, recommendation_meta: dict) -> dict:
+    """惊喜卡的固定文案：special treat + 点名 tag A + 在 tag A 上做突破。绝不依赖 LLM。"""
+    query = query_card.get("free_text_query") or query_card.get("interpretation_plain") or "your current search"
+    tags = _dominant_taste_tags(profile_md)
+    if tags:
+        tag_a = " and ".join(tags)
+        taste_clause = (
+            f"you usually go for tracks that feel {tag_a} — "
+            f"and this time we deliberately broke past that {tag_a} mold"
+        )
+    else:
+        taste_clause = "this time we deliberately stepped past the kind of music you usually reach for"
+    return {
+        "why_text": (
+            f"This one is a special treat, picked just for you. We know it sits a little outside your usual taste: "
+            f"{taste_clause}, while still keeping it close to what you searched for ({query}). "
+            f"We hope it helps you discover a different corner of the music world."
+        ),
+        "evidence": [{
+            "source": "ranking",
+            "detail": f"ranking_basis={recommendation_meta.get('ranking_basis', 'surprise_adjacent_shift')}; "
+                      f"anchor_tags={', '.join(tags) if tags else '(profile empty)'}",
+        }],
+    }
 
 
 def _fallback_explanation(query_card: dict,
@@ -350,3 +425,50 @@ def _normalize_evidence(raw: dict) -> dict:
         "source": str(raw.get("source", "")).strip(),
         "detail": str(raw.get("detail", "")).strip(),
     }
+
+
+_SOUNDS_LIKE_YOU_SYSTEM = """You explain why a music track sounds like a specific person — their musical identity, not a recommendation.
+
+The AI has listened to everything this person has gravitated toward and identified one track that best represents who they ARE musically. This is a self-portrait in sound.
+
+You are given:
+- user_profile: The listener's long-term taste profile (dominant moods, textures, musical tendencies built from their feedback history)
+- track: title and artist of the identified track
+- track_tags: Cyanite acoustic/mood/genre tags for this track
+
+Write 2-4 sentences explaining why THIS track sounds like this specific person. Ground every claim in user_profile and track_tags. Do not invent anything.
+
+Frame it as the AI reflecting the person's musical identity back at them — intimate, observational, honest. Not "we recommend this" but "this IS you."
+
+Plain prose only. No markdown, no bullet points, no asterisks. Warm but precise."""
+
+
+def build_sounds_like_you_explanation(profile_md: str, track: dict, track_tags: dict) -> dict:
+    """Why this track IS the user, not why it was recommended."""
+    if not config.OPENAI_API_KEY:
+        tags_summary = ", ".join(list(track_tags.keys())[:4]) if track_tags else "various qualities"
+        return {
+            "why_text": (
+                f"Based on your taste profile, {track.get('title', 'this track')} by {track.get('artist', 'this artist')} "
+                f"captures the sound you keep returning to — {tags_summary} are woven through everything you've loved."
+            ),
+            "evidence": [],
+        }
+    payload = {
+        "user_profile": profile_md.strip() or "(no profile yet)",
+        "track": {"title": track.get("title", ""), "artist": track.get("artist", "")},
+        "track_tags": track_tags,
+    }
+    resp = _post_with_retry(
+        f"{config.OPENAI_BASE_URL.rstrip('/')}/responses",
+        headers={"Authorization": f"Bearer {config.OPENAI_API_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": config.OPENAI_MODEL,
+            "instructions": _SOUNDS_LIKE_YOU_SYSTEM,
+            "input": [{"role": "user", "content": [{"type": "input_text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}],
+            "text": {"format": {"type": "json_schema", "name": "sounds_like_you_explanation", "strict": True, "schema": EXPLANATION_SCHEMA}},
+        },
+        timeout=config.OPENAI_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return _normalize_explanation(json.loads(_extract_output_text(resp.json())))

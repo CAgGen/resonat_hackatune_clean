@@ -16,6 +16,7 @@ const StartPage = () => {
     explanation,
     addNote,
     updateNote,
+    lockNote,
     finishEditing,
     confirmSound,
     isLoadingCards,
@@ -148,6 +149,8 @@ const StartPage = () => {
                     index={index}
                     onChange={updateNote}
                     onFinishEdit={finishEditing}
+                    onCommit={lockNote}
+                    readOnly={!!note.locked}
                     viewTransitionName={`note-${note.id}`}
                   />
                 );
@@ -174,26 +177,21 @@ const StartPage = () => {
               })}
             </div>
           )}
+
+          {/* Building the sound brief: a typewriter line beneath the memos —
+              same mono + blinking block caret as a memo, covers nothing. */}
+          {isBuilding && (
+            <div
+              role="status"
+              className="font-display text-[14px] font-bold uppercase tracking-[0.18em] text-[var(--paper)] opacity-80"
+            >
+              <span className="memo-typed">generating sound brief</span>
+            </div>
+          )}
         </div>
       </Canvas>
 
       <Slogan />
-
-      {/* Building the sound brief (Enter / idle) — bottom pill so it can show
-          even while the memos stay on screen. */}
-      {isBuilding && (
-        <div
-          role="status"
-          className="font-display fixed bottom-24 left-1/2 z-[10000] flex -translate-x-1/2 items-center gap-3 rounded-full bg-[var(--paper)] px-5 py-3 text-[14px] font-bold uppercase leading-none text-[var(--ink)] shadow-[var(--shadow-block)]"
-        >
-          <span>Building your sound brief</span>
-          <span className="flex gap-1">
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink)] [animation-delay:-0.3s]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink)] [animation-delay:-0.15s]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink)]" />
-          </span>
-        </div>
-      )}
 
       {toast && (
         <div

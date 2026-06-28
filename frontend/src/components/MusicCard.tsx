@@ -9,6 +9,9 @@ interface MusicCardProps {
   isPlaying?: boolean;
   liked?: boolean;
   surprise?: boolean;
+  // Custom corner badge text (e.g. the "sounds like you" card). Overrides the
+  // surprise badge when set.
+  badge?: string;
   downloadUrl?: string;
   onOpen?: () => void;
   onLike?: (liked: boolean) => void;
@@ -70,6 +73,7 @@ const MusicCard = ({
   isPlaying = false,
   liked: likedProp,
   surprise = false,
+  badge,
   downloadUrl,
   onOpen,
   onLike,
@@ -127,9 +131,9 @@ const MusicCard = ({
             className="absolute inset-0 h-full w-full object-cover"
           />
         )}
-        {surprise && (
+        {(badge || surprise) && (
           <span className="font-display absolute bottom-2 left-2 rounded-full border border-[var(--ink)] bg-[var(--yellow)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--ink)]">
-            ✨ Special treat
+            {badge ?? "✨ Special treat"}
           </span>
         )}
         {isPlaying && (

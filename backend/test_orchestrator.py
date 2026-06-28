@@ -226,6 +226,16 @@ def test_normal_likes_use_clicked_track_similarity_without_multi_seed(monkeypatc
     assert len(ids) == orch.config.VISIBLE_N
 
 
+def test_like_with_empty_similar_falls_back_to_backlog(monkeypatch, tmp_path):
+    # 相似搜不到时 like 不能把槽位删空（否则越点 like 列表越少）。
+    sid, calls = _confirmed("u7", monkeypatch, tmp_path)
+    monkeypatch.setattr(orch.cyanite, "find_similar", lambda cid, limit=20: [])
+    body = client.post("/feedback", json={"session_id": sid, "track_id": "libtr_0", "verdict": "like"}).json()
+    ids = [c["track_id"] for c in body["cards"]]
+    assert "libtr_0" not in ids
+    assert len(ids) == orch.config.VISIBLE_N             # 槽位数不变：兜底 backlog 补上了
+
+
 def test_dislike_without_any_like_uses_backlog(monkeypatch, tmp_path):
     sid, calls = _confirmed("u4", monkeypatch, tmp_path)
     body = client.post("/feedback", json={"session_id": sid, "track_id": "libtr_0", "verdict": "dislike"}).json()

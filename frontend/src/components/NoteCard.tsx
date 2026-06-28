@@ -10,6 +10,7 @@ interface NoteCardProps {
   index: number;
   onChange?: (id: string, body: string) => void;
   onFinishEdit?: () => void;
+  onCommit?: (id: string) => void;
   widthClass?: string;
   readOnly?: boolean;
   viewTransitionName?: string;
@@ -110,6 +111,7 @@ const NoteCard = ({
   index,
   onChange,
   onFinishEdit,
+  onCommit,
   widthClass = "w-80",
   readOnly = false,
   viewTransitionName,
@@ -265,6 +267,7 @@ const NoteCard = ({
               event.preventDefault();
               if (textAreaRef.current?.value.trim()) {
                 textAreaRef.current.blur();
+                onCommit?.(note.id);
                 onFinishEdit?.();
               }
             }

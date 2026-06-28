@@ -26,9 +26,11 @@ export type CardsResponse = {
   cards: RecommendationCard[];
   candidate_pool_size: number;
 };
+export type MoodSegment = { t: number; label: string };
 export type ExplanationResponse = {
   why_text: string;
   evidence: { source: string; detail: string }[];
+  segments?: MoodSegment[];
 };
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -78,7 +80,7 @@ export const finishRound = (session_id: string) =>
   post<FinishRoundResponse>("/round/finish", { session_id });
 
 export type SoundsLikeYouResponse = {
-  card: RecommendationCard | null;
+  cards: RecommendationCard[];
   memory_md: string;
 };
 

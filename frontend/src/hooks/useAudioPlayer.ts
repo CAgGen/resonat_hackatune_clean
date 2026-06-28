@@ -113,5 +113,20 @@ export function useAudioPlayer(
     [markUnavailable],
   );
 
-  return { playingId, unavailable, play, stop };
+  // Jump to a timestamp (seconds) and play — used by the explanation footnotes.
+  const seek = useCallback(
+    (id: string, seconds: number) => {
+      const target = audiosRef.current.get(id);
+      if (!target) return;
+      try {
+        target.currentTime = seconds;
+      } catch {
+        // currentTime can throw before metadata loads; play() below still starts it.
+      }
+      play(id);
+    },
+    [play],
+  );
+
+  return { playingId, unavailable, play, stop, seek };
 }

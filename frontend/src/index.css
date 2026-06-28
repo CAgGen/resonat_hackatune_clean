@@ -117,6 +117,42 @@ button:focus-visible,
   transform: translateY(-14px);
 }
 
+/* Building the sound brief: a typewriter status line that types itself out
+   beneath the memos, echoing the memo's own blinking block caret. Mono, flat,
+   no blur — sits below the notes so it never covers them. */
+.memo-typed {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  width: 0;
+  vertical-align: bottom;
+  border-right: 9px solid var(--paper);
+  animation:
+    memo-type 3.2s steps(22) infinite,
+    memo-caret 760ms steps(2, jump-none) infinite;
+}
+
+@keyframes memo-type {
+  0% {
+    width: 0;
+  }
+  35% {
+    width: 22ch;
+  }
+  85% {
+    width: 22ch;
+  }
+  100% {
+    width: 0;
+  }
+}
+
+@keyframes memo-caret {
+  50% {
+    border-right-color: transparent;
+  }
+}
+
 .results-page-enter {
   animation: results-page-enter 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }

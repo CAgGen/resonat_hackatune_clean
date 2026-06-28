@@ -44,7 +44,7 @@ def _get(session_id: str) -> dict:
 
 def _recompile(s: dict) -> None:
     """白板有变就重编 Query Card，带上该用户的记忆画像。"""
-    profile = memory.read_memory(s["user_id"])
+    profile = memory.feeling_injection(s["user_id"])   # 只注入「感觉」，不带历史曲风/搜索词
     s["query_card"] = intent_agent.compile_query_card(s["whiteboard_posts"], profile)
 
 
@@ -86,24 +86,26 @@ def _remove_visible(s: dict, cyanite_id: str) -> None:
     ]
 
 
+def _replace_visible(s: dict, cyanite_id: str, fill: dict | None) -> None:
+    """把被划走的卡原地换成回填卡：位置不变，可见顺序才稳定（点一首喜欢，
+    旁边的歌不会跟着重排消失）。没回填则只删掉该卡。"""
+    idx = next(
+        (i for i, c in enumerate(s["visible_cards"])
+         if c["cyanite_id"] == cyanite_id or c["track_id"] == cyanite_id),
+        None,
+    )
+    if idx is None:
+        return
+    if fill is None:
+        s["visible_cards"].pop(idx)
+    else:
+        s["visible_cards"][idx] = fill
+
+
 def _record_like(s: dict, cyanite_id: str) -> None:
+    # 只记 liked 种子；记忆（证据 + 画像）在一轮结束时统一落，见 finish_round。
     if cyanite_id not in s["liked_tracks"]:
         s["liked_tracks"].append(cyanite_id)
-    # ⑦ 落记忆：证据追加（以最后确认的 prompt 为根基）+ 画像重写（接缝在 memory 模块）
-    memory.append_evidence(s["user_id"], _final_prompt(s), [cyanite_id])
-    memory.rewrite_memory(s["user_id"])
-
-
-def _set_single_seed_pool(s: dict, cyanite_id: str) -> None:
-    rows = cyanite.find_similar(cyanite_id, limit=config.SIMILAR_LIMIT)
-    s["candidate_pool"] = [{
-        "cyanite_id": r["cyanite_id"],
-        "source_liked_track": cyanite_id,
-        "similar_score": r["score"],
-        "prompt_match_score": None,
-        "status": "candidate",
-    } for r in rows]
-    s["pool_sig"] = tuple(s["liked_tracks"])
 
 
 def _card_from_candidate(candidate: dict, source: str) -> dict | None:
@@ -116,6 +118,18 @@ def _card_from_candidate(candidate: dict, source: str) -> dict | None:
     })
     enriched = cyanite.enrich_meta([card])
     return enriched[0] if enriched else None
+
+
+def _set_single_seed_pool(s: dict, cyanite_id: str) -> None:
+    rows = cyanite.find_similar(cyanite_id, limit=config.SIMILAR_LIMIT)
+    s["candidate_pool"] = [{
+        "cyanite_id": r["cyanite_id"],
+        "source_liked_track": cyanite_id,
+        "similar_score": r["score"],
+        "prompt_match_score": None,
+        "status": "candidate",
+    } for r in rows]
+    s["pool_sig"] = tuple(s["liked_tracks"])
 
 
 def _best_similar_refill(s: dict) -> dict | None:
@@ -131,7 +145,7 @@ def _best_similar_refill(s: dict) -> dict | None:
 
 
 def _profile_refill(s: dict) -> dict | None:
-    profile_text = memory.read_memory(s["user_id"]).strip()
+    profile_text = memory.feeling_injection(s["user_id"])   # 只用「感觉」做语义回填，不被旧曲风带跑
     query = (
         profile_text
         or s["query_card"].get("free_text_query")
@@ -221,7 +235,7 @@ def confirm(session_id: str) -> dict:
     """③ 过确认门 → 此刻才跑 search 阶段（tool calling）拿检索参数 → freeTextSearch
        → 填首批推荐 + backlog。不做 similar 粗扩展。"""
     s = _get(session_id)
-    args = intent_agent.search_args(s["whiteboard_posts"], memory.read_memory(s["user_id"]))
+    args = intent_agent.search_args(s["whiteboard_posts"], memory.feeling_injection(s["user_id"]))
     s["query_card"]["free_text_query"] = args["query"]
     s["query_card"]["metadata_filter"] = args["metadata_filter"]
     results = cyanite.search_by_prompt(args["query"], limit=config.SEARCH_LIMIT,
@@ -229,43 +243,53 @@ def confirm(session_id: str) -> dict:
     cards = cyanite.enrich_meta([_card(r["cyanite_id"], r["score"], "free_text") for r in results])
     s["visible_cards"] = cards[:config.VISIBLE_N]
     s["free_text_backlog"] = cards[config.VISIBLE_N:]
+    _inject_surprise(s)  # 惊喜位只在本轮第一批出现；后续 feedback 回填不再加
     return s
 
 
-<<<<<<< HEAD
+def _inject_surprise(s: dict) -> None:
+    """惊喜位：忠于本轮需求、刻意偏离画像的一张卡，source='surprise'。只在 confirm 调用。
+    没画像/无 key/检索失败一律静默跳过，绝不拖垮主推荐。被 like 后它进 liked 种子，
+    之后的解释自然走 similar（两曲为何相似）路径——不再是惊喜文案。"""
+    profile = memory.read_memory(s["user_id"])
+    try:
+        args = intent_agent.surprise_args(s["whiteboard_posts"], profile)
+        if not args:
+            return
+        seen = {c["cyanite_id"] for c in s["visible_cards"]} | {c["cyanite_id"] for c in s["free_text_backlog"]}
+        results = cyanite.search_by_prompt(args["query"], limit=config.SEARCH_LIMIT,
+                                           metadata_filter=args["metadata_filter"])
+        pick = next((r for r in results if r["cyanite_id"] not in seen), None)
+        if not pick:
+            return
+    except Exception:
+        return
+    card = cyanite.enrich_meta([_card(pick["cyanite_id"], pick["score"], "surprise")])[0]
+    s["visible_cards"].insert(min(3, len(s["visible_cards"])), card)  # 沿用「第4张」惊喜位
+    if len(s["visible_cards"]) > config.VISIBLE_N:                    # 挤出的普通卡退回 backlog
+        s["free_text_backlog"].insert(0, s["visible_cards"].pop())
+
+
 def feedback(session_id: str, track_id: str, verdict: str, mode: str = "normal") -> dict:
     """⑤ normal like → 记 liked + 划走 + 用该曲相似回填；
        anti_addiction like → 只记 liked，不动列表；
-       dislike → 移除该曲，普通模式按 liked 相似回填，防沉迷按用户画像语义回填。"""
-=======
-def feedback(session_id: str, track_id: str, verdict: str) -> dict:
-    """⑤ like → 只记为 liked 种子，不搜索、不动列表、不落记忆（记忆在一轮结束时统一落，见 finish_round）；
-       dislike → 移除该曲 → 用 liked 种子搜相似回填一格。最后薄重排。"""
->>>>>>> 1556e0e (feat: implement round completion functionality)
+       dislike → 移除该曲，普通模式按 liked 相似回填，防沉迷按用户画像语义回填。
+       记忆不在此落——一轮结束（finish_round）才统一写。"""
     s = _get(session_id)
     card = _visible_card(s, track_id)
     cid = card["cyanite_id"]
     if verdict == "like":
-<<<<<<< HEAD
         _record_like(s, cid)
         if mode != "anti_addiction":
-            _remove_visible(s, cid)
-            _set_single_seed_pool(s, cid)
+            _set_single_seed_pool(s, cid)               # 单种子：只用刚点的这首搜相似
             fill = _best_similar_refill(s)
-            if fill:
-                s["visible_cards"].append(fill)
-=======
-        if cid not in s["liked_tracks"]:
-            s["liked_tracks"].append(cid)
-        # 不跑任何检索、不落记忆，visible_cards 不动
->>>>>>> 1556e0e (feat: implement round completion functionality)
+            if fill is None and s["free_text_backlog"]:  # 相似搜不到 → 兜底 backlog，位别空
+                fill = s["free_text_backlog"].pop(0)
+            _replace_visible(s, cid, fill)               # 原地换：顺序稳定，旁卡不动
     elif verdict == "dislike":
         s["disliked_tracks"][cid] = True
-        _remove_visible(s, cid)
         fill = _profile_refill(s) if mode == "anti_addiction" else _backfill(s)
-        if fill:
-            s["visible_cards"].append(fill)
-    s["visible_cards"] = rerank.thin_rerank(s["visible_cards"])  # ⑥
+        _replace_visible(s, cid, fill)
     return s
 
 
@@ -284,6 +308,34 @@ def finish_round(session_id: str) -> dict:
 def your_sound(user_id: str) -> str:
     """⑧ 记忆摘要，演'越用越准'。"""
     return memory.read_memory(user_id)
+
+
+def sounds_like_you(user_id: str) -> dict:
+    """⑧b 「听起来像你」：把长期画像忠实翻成检索词，搜出「AI 眼中的你本人」的一小串候选。
+    前端逐张播放，不喜欢就翻下一张，翻完即止。
+    没画像/无 key/检索失败一律静默返回 cards=[]，画像照常展示。"""
+    profile = memory.read_memory(user_id)
+    cards = []
+    try:
+        args = intent_agent.sounds_like_you_args(profile)
+        if args:
+            results = cyanite.search_by_prompt(args["query"], limit=config.SEARCH_LIMIT)
+            top = results[: config.SOUNDS_LIKE_YOU_LIMIT]
+            if top:
+                cards = cyanite.enrich_meta(
+                    [_card(r["cyanite_id"], r["score"], "sounds_like_you") for r in top]
+                )
+    except Exception:
+        pass
+    return {"cards": cards, "memory_md": profile}
+
+
+def explain_sounds_like_you(user_id: str, cyanite_id: str) -> dict:
+    """Why this track IS the user — based purely on long-term taste profile."""
+    profile_md = memory.read_memory(user_id)
+    track_tags = cyanite.model_tags(cyanite_id, config.EXPLAIN_TAG_MODELS)
+    display = cyanite.display(cyanite_id, "")
+    return explanation_builder.build_sounds_like_you_explanation(profile_md, display, track_tags)
 
 
 def explain(session_id: str, track_id: str) -> dict:
@@ -325,7 +377,7 @@ def explain(session_id: str, track_id: str) -> dict:
     liked_tags = {}
     if explanation_example:
         liked_tags = cyanite.model_tags(explanation_example["track_id"], config.EXPLAIN_TAG_MODELS)
-    return explanation_builder.build_explanation(
+    result = explanation_builder.build_explanation(
         profile_md,
         s["query_card"],
         liked_tags,
@@ -334,3 +386,6 @@ def explain(session_id: str, track_id: str) -> dict:
         explanation_example,
         cyanite.display(cyanite_id),
     )
+    # 角标：主导情绪随时间的时间轴，时间戳直接来自 Cyanite segments（已在 recommended_tags 里，零额外请求）。
+    result["segments"] = explanation_builder.mood_timeline(recommended_tags)
+    return result
