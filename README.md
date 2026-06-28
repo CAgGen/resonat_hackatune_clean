@@ -1,130 +1,364 @@
-# Sounds Like You
+<div align="center">
 
-**Cyanite challenge for HACKATUNE 2026 (Munich Music Labs).**
+# Cochlea
 
-Build a music discovery experience on the Cyanite API that recommends tracks based on
-how they actually sound, driven by natural language, seed tracks, and a listener's
-taste. Every recommendation should be
-explainable, so a user can ask "why this track?" and get a clear answer grounded in
-Cyanite's audio tags.
+**An audio-first music discovery demo for HACKATUNE 2026**
 
-Read the full brief in [CHALLENGE.md](CHALLENGE.md).
+Turn a listener's messy natural-language mood into explainable recommendations,
+grounded in Cyanite audio intelligence and refined through lightweight taste memory.
 
-## What's in this repo
+[![Backend](https://img.shields.io/badge/backend-FastAPI-009688.svg)](backend/README.md)
+[![Frontend](https://img.shields.io/badge/frontend-React%20%2B%20Vite-646CFF.svg)](frontend/README.md)
+[![Python](https://img.shields.io/badge/python-3.13-blue.svg)](backend/pyproject.toml)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-| Path | What it is |
+[How it works](#-how-it-works) · [Architecture](#-architecture) · [Dependencies](#-dependencies) · [Run](#-run-locally) · [API](#-api-surface) · [Verification](#-verification)
+
+</div>
+
+---
+
+## ✨ What is this?
+
+Cochlea, also described in the product as **Sounds Like You**, is a hackathon music
+recommendation app built around one principle: the user should understand why a
+song was recommended.
+
+The app takes a vague prompt such as "lonely midnight train ride", compiles it into
+a visible Query Card, asks the user to confirm or refine that interpretation, then
+searches Cyanite's audio catalog. User feedback updates an in-session seed set and,
+when the round is finished, appends evidence to markdown-based taste memory.
+
+This repository currently contains:
+
+| Content | Description |
 |---|---|
-| `CHALLENGE.md` | The challenge: what to build, ideas, and judging criteria |
-| `CHALLENGE_AGREEMENT.md` | Terms for participating in the Cyanite challenge (accepted at registration) |
-| `data/` | The data pack (taste profiles + track display info) |
-| `notebooks/` | Python starter notebook: model outputs + search (text, similarity, multi-track) with audio |
-| `guides/` | Cyanite API guides (endpoint PDFs) + model outputs and tag-vocabulary reference |
-| `.env.sample` | Template for your Cyanite API key |
-| `LICENSE` | MIT, for the code and docs in this repo |
-| `DATA_LICENSE.md` | Terms for the data pack (Creative Commons music, pseudonymized profiles) |
+| [`frontend/`](frontend/) | React + TypeScript + Vite experience for prompt input, results, feedback, explanations, and "sounds like you" cards |
+| [`backend/`](backend/) | FastAPI service that owns sessions, intent compilation, Cyanite calls, explanations, and markdown memory |
+| [`data/`](data/) | Hackathon data pack: user taste profiles, Jamendo track metadata, and Cyanite/Jamendo mapping |
+| [`guides/`](guides/) | Cyanite API PDFs, model-output notes, and tag vocabulary references |
+| [`notebooks/`](notebooks/) | Starter notebook for Cyanite model outputs and search endpoints |
+| [`PRD-night.md`](PRD-night.md) | One-night sprint PRD that defines the confirmation gate, feedback loop, and no-database memory model |
+| [`GETTING_STARTED.md`](GETTING_STARTED.md) | Chinese setup guide used by the team during development |
 
-## Getting started
+---
 
-1. Clone this repo.
-2. Copy the env template and add your Cyanite API key (handed out by the organizers at the event):
-   ```bash
-   cp .env.sample .env
-   # then edit .env and set CYANITE_API_KEY
-   ```
-3. Read [CHALLENGE.md](CHALLENGE.md), then open the starter notebook [`notebooks/cyanite_model_outputs.ipynb`](notebooks/cyanite_model_outputs.ipynb); skim the [tag vocabularies](guides/tag_vocabularies.md).
-4. Explore `data/` (see below) and start querying the Cyanite API by track ID or text prompt.
+## 🧭 How it works
 
-For the Cyanite API, use the starter notebook
-[`notebooks/cyanite_model_outputs.ipynb`](notebooks/cyanite_model_outputs.ipynb) (covers all four
-endpoints) and the guides in [`guides/`](guides/) (endpoint PDFs, model outputs, tag vocabularies).
+```mermaid
+flowchart TD
+    A["User prompt<br/>mood, scene, seed, or reference"] --> B["Whiteboard posts<br/>initial prompt + follow-ups"]
+    B --> C["Intent compiler<br/>deterministic fallback or OpenAI-assisted"]
+    C --> D["Query Card<br/>plain interpretation + free-text query + soft targets"]
+    D --> E{"User confirms<br/>the interpretation?"}
+    E -->|"No"| F["Add follow-up note"]
+    F --> B
+    E -->|"Yes"| G["Cyanite free-text search"]
+    G --> H["Visible recommendation cards"]
+    H --> I{"User feedback"}
+    I -->|"Like"| J["Record liked seed<br/>optionally refill with similar track"]
+    I -->|"Dislike"| K["Remove card<br/>refill from liked seeds or backlog"]
+    J --> L["Round finish"]
+    K --> H
+    L --> M["Append evidence.md<br/>liked track + final prompt + feel tags"]
+    M --> N["Rewrite memory.md<br/>natural-language feel profile"]
+    N --> C
+    H --> O["Why this track?<br/>Cyanite tags + query card + ranking path"]
+```
 
-## The data pack
+The recommendation loop is intentionally small:
 
-Everything is restricted to a catalog of tracks that are indexed in Cyanite, so any track ID you see
-is queryable.
+| Step | What happens |
+|---|---|
+| **Intent** | `/intent` stores the first prompt as a whiteboard post and compiles a Query Card without searching yet |
+| **Refine** | `/intent/follow-up` adds another post and recompiles the Query Card |
+| **Confirm** | `/intent/confirm` runs Cyanite free-text search only after the user accepts the interpretation |
+| **Feedback** | `/feedback` records likes as seeds, removes disliked cards, and refills empty slots |
+| **Memory** | `/round/finish` appends evidence and rewrites a feel-only profile in markdown |
+| **Explain** | `/explain` builds an English explanation from Cyanite tags, the Query Card, user memory, and ranking metadata |
 
-| File | Columns | Notes |
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart LR
+    subgraph Browser["Browser"]
+        UI["React app<br/>StartPage + ResultsPage"]
+        API["src/api.ts<br/>typed fetch wrapper"]
+    end
+
+    subgraph Backend["FastAPI backend"]
+        APP["app.py<br/>HTTP schemas + routes"]
+        ORCH["orchestrator.py<br/>session state machine"]
+        INTENT["intent_agent.py<br/>Query Card + search args"]
+        CY["cyanite.py<br/>Cyanite REST wrapper"]
+        EXPLAIN["explanation_builder.py<br/>Why this track"]
+        MEM["memory.py<br/>evidence + feel profile"]
+        RERANK["rerank.py<br/>refill ranking"]
+    end
+
+    subgraph LocalData["Local files"]
+        CSV["data/tracks.csv<br/>display metadata"]
+        MAP["data/jamendo_mapper.json<br/>catalog id mapping"]
+        MD["backend/memory/*.md<br/>runtime user memory"]
+    end
+
+    subgraph External["External services"]
+        Cyanite["Cyanite REST API"]
+        Jamendo["Jamendo API/audio"]
+        OpenAI["OpenAI Responses API<br/>optional"]
+    end
+
+    UI --> API
+    API -->|"Vite proxy /api"| APP
+    APP --> ORCH
+    ORCH --> INTENT
+    ORCH --> CY
+    ORCH --> EXPLAIN
+    ORCH --> MEM
+    ORCH --> RERANK
+    CY --> CSV
+    CY --> MAP
+    CY --> Cyanite
+    CY --> Jamendo
+    EXPLAIN --> OpenAI
+    MEM --> MD
+```
+
+Session state lives in memory inside the backend process. Cross-session taste memory is
+stored as two markdown files per user under `backend/memory/`; there is no database.
+
+---
+
+## 📁 Project structure
+
+```text
+.
+├── backend/
+│   ├── app.py                 # FastAPI routes and request/response contracts
+│   ├── orchestrator.py        # prompt -> search -> feedback -> memory loop
+│   ├── cyanite.py             # the only module that talks to Cyanite REST
+│   ├── intent_agent.py        # Query Card and search-argument generation
+│   ├── explanation_builder.py # grounded English recommendation explanations
+│   ├── memory.py              # markdown evidence/profile storage
+│   ├── rerank.py              # refill candidate ranking helpers
+│   └── test_*.py              # focused backend tests
+├── frontend/
+│   ├── src/App.tsx            # route shell
+│   ├── src/pages/             # start and results flows
+│   ├── src/components/        # cards, controls, modal, visual effects
+│   └── src/api.ts             # typed API client for the FastAPI backend
+├── data/                      # hackathon data pack and id mapping
+├── guides/                    # Cyanite endpoint guides and vocabularies
+├── notebooks/                 # Cyanite starter notebook
+├── start.sh                   # one-shot full-stack dev startup
+├── dev.sh                     # smaller backend/frontend startup helper
+└── .env.sample                # local API-key template
+```
+
+---
+
+## 📦 Dependencies
+
+| Layer | Runtime / package manager | Main dependencies |
 |---|---|---|
-| `data/users.csv` | `user_id, liked_track_ids` | Pseudonymized user profiles (numeric IDs only). `liked_track_ids` is a space-separated list of Jamendo track IDs, e.g. `df["liked_track_ids"].str.split()` |
-| `data/tracks.csv` | `track_id, cyanite_id, name, artist_name, duration` | Display info for the tracks referenced by the user profiles |
+| **Backend** | Python 3.13 + [`uv`](https://docs.astral.sh/uv/) | FastAPI, Uvicorn, Requests, HTTPX, python-dotenv, pytest |
+| **Frontend** | Node.js 20+ + npm | React 19, React DOM, React Router, Vite, TypeScript, Tailwind CSS, motion, OGL, oxlint |
+| **Data** | Local CSV / JSON | `data/tracks.csv`, `data/users.csv`, `data/jamendo_mapper.json` |
+| **External APIs** | HTTP | Cyanite REST, optional Jamendo metadata/downloads, optional OpenAI Responses API |
+| **Memory** | Markdown files | `backend/memory/<user_id>.evidence.md` and `backend/memory/<user_id>.memory.md` generated at runtime |
 
-**Two id spaces:** `track_id` is the **Jamendo** id (used for the audio URL and for joining
-`users.csv`); `cyanite_id` (`libtr_...`) is the id you pass to the **Cyanite API**. Join
-`users.csv` to `tracks.csv` on `track_id` to get the `cyanite_id` for a user's liked tracks.
-Every track in the pack has a `cyanite_id`.
+Backend dependency versions are locked by [`backend/uv.lock`](backend/uv.lock).
+Frontend dependency versions are locked by [`frontend/package-lock.json`](frontend/package-lock.json).
 
-Use the user profiles as seeds for content-based taste profiles (the sound of what a
-user likes), not as collaborative-filtering / co-listening signals. See
-[DATA_LICENSE.md](DATA_LICENSE.md) for music attribution and data-use terms.
+---
 
-### Audio
+## ⚙️ Configuration
 
-Audio is available as public MP3 for any track at a
-deterministic URL, so you can fetch audio for any catalog or search-result track ID:
+Copy the sample environment file and fill in the keys you have:
 
-```js
-`https://prod-1.storage.jamendo.com/download/track/${trackId}/mp32/`
+```bash
+cp .env.sample .env
 ```
 
-e.g., for track ID `391816`:
+| Variable | Required? | Purpose |
+|---|---:|---|
+| `CYANITE_API_KEY` | Yes for search/recommendation | Authenticates requests to Cyanite |
+| `CYANITE_ACCOUNT` | Event metadata | Account value issued for the challenge, if needed by the team |
+| `OPENAI_API_KEY` | Optional | Enables OpenAI-assisted intent/explanation generation; deterministic fallbacks exist |
+| `OPENAI_MODEL` | Optional | Defaults to the value in `.env.sample` / `backend/config.py` |
+| `OPENAI_BASE_URL` | Optional | Defaults to `https://api.openai.com/v1` |
+| `OPENAI_TIMEOUT` | Optional | Response timeout in seconds |
+| `JAMENDO_CLIENT_ID` | Optional but useful | Lets the backend fetch display metadata and proxy high-quality downloads |
+
+`.env` is git-ignored and is loaded from the repository root by [`backend/config.py`](backend/config.py).
+
+---
+
+## 🚀 Run locally
+
+Install the base tools first:
+
+```bash
+uv --version
+node --version
+npm --version
 ```
-https://prod-1.storage.jamendo.com/download/track/391816/mp32/
+
+One command starts the whole app:
+
+```bash
+./start.sh
 ```
 
-Replace `<track_id>` with the numeric ID (no API key needed). A small number of tracks
-that disallow download on Jamendo may not resolve.
+It syncs backend dependencies, installs frontend dependencies, starts FastAPI on
+`:8000`, and starts Vite on `:5173`.
 
-## The Cyanite API (four endpoints)
+| URL | What it is |
+|---|---|
+| http://localhost:5173 | Frontend app |
+| http://localhost:8000 | Backend API |
+| http://localhost:8000/docs | FastAPI Swagger UI |
 
-Base URL `https://rest-api.cyanite.ai/v1`, auth header `x-api-key: <your key>`.
-Search for catalog tracks using track ids, prompts, tags, and metadata filters.
+Smaller commands are available through [`dev.sh`](dev.sh):
 
-- **Find by text prompt**: `POST /private-alpha/library-tracks/search`, body `{"query": "..."}`
-- **Find similar (single seed)**: `POST /private-alpha/library-tracks/{id}/similar`
-- **Find similar (multi-track, up to 10 seeds)**: `POST /private-alpha/library-tracks/similar`, body `{"tracks": [{"id": "libtr_..."}]}`
-- **Model outputs (tags)**: `GET /library-tracks/{id}/models?model=MoodSimpleV2&model=MainGenreV2&...`
+```bash
+./dev.sh          # sync backend dependencies only
+./dev.sh run      # run FastAPI on :8000
+./dev.sh front    # run Vite on :5173
+```
 
-The three search endpoints return `{"items": [{"track": {...}, "score": 0..1}], "pageInfo": {...}}`
-ordered by relevance/similarity; fetch a result's tags via the model-outputs endpoint to explain it.
+Manual equivalents:
 
-**Metadata filters.** All search modes accept an optional `metadataFilter`, applied before
-ranking. It is a MongoDB-style filter keyed by the model-output field in **dot notation**,
-`"<ModelVersion>.<field>"`. Operators: `$gte $lte $gt $lt $eq $ne $in $nin $exists`, plus the
-logical `$and` / `$or`.
+```bash
+# Backend
+cd backend
+uv sync
+uv run uvicorn app:app --reload --port 8000
+```
+
+```bash
+# Frontend
+cd frontend
+npm install
+npm run dev
+```
+
+---
+
+## 🔌 API surface
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Lightweight backend health check |
+| `POST /intent` | Start a session and compile the first Query Card |
+| `POST /intent/follow-up` | Add a follow-up note and recompile the Query Card |
+| `POST /intent/confirm` | Run confirmed Cyanite free-text search and return cards |
+| `POST /feedback` | Apply like/dislike feedback and refill the visible list |
+| `POST /round/finish` | Persist liked evidence and rewrite the user feel profile |
+| `POST /explain` | Generate "Why this track?" for a visible recommendation |
+| `GET /your-sound` | Return the user's markdown feel profile |
+| `GET /sounds-like-you` | Search for tracks that match the long-term profile |
+| `POST /explain-sounds-like-you` | Explain a profile-based track |
+| `GET /download/{track_id}` | Proxy a Jamendo MP3 download when enabled |
+| `GET /cyanite/*` | Debug helpers for trying Cyanite calls from Swagger |
+
+The frontend talks to these routes through Vite's `/api` proxy, so browser code uses
+relative paths such as `/api/intent`.
+
+---
+
+## 🧪 Verification
+
+Backend tests are offline-friendly because network modules are monkeypatched in focused
+tests:
+
+```bash
+cd backend
+uv run pytest
+```
+
+Frontend checks:
+
+```bash
+cd frontend
+npm run build
+npm run lint
+```
+
+Basic runtime smoke checks:
+
+```bash
+./start.sh
+curl localhost:8000/health
+```
+
+Expected health response:
 
 ```json
-{ "BpmV2.tag": { "$gte": 120, "$lte": 140 } }
-{ "TempoV1.tag": { "$eq": "fast" } }
-{ "MainGenreV2.tags": { "$in": ["rock", "pop"] } }
-{ "MoodSimpleV2.scores.energetic": { "$gte": 0.5 } }
-{ "$and": [ { "BpmV2.tag": { "$gte": 100 } }, { "InstrumentsV2.tags": { "$in": ["piano"] } } ] }
+{"ok":true}
 ```
 
-Filter keys follow the model-output fields: `.tag` (single value), `.tags` (array, use `$in` /
-`$nin`), or `.scores.<tag>` (numeric per-tag score). See [model outputs](guides/model_outputs.md)
-for the fields and [tag vocabularies](guides/tag_vocabularies.md) for valid tag values.
+For an end-to-end demo, open `http://localhost:5173`, enter a prompt, confirm the Query
+Card, then like/dislike recommendations and open "Why this track?".
 
-See [CHALLENGE.md](CHALLENGE.md) for the loop and the
-[starter notebook](notebooks/cyanite_model_outputs.ipynb) for runnable examples.
+---
 
-## API usage and limits
+## 🎧 Data and API notes
 
-The API key is shared for the event and usage limits are **pooled across all teams**, so
-please cache results and fetch only what you use, so everyone has capacity for the full
-36 hours. Each action has a per-minute rate limit and an overall event quota:
+The app uses two id spaces:
 
-| Action | Rate limit (per minute) | Event quota (total) |
-|---|---|---|
-| Prompt search | 100 / min | 15,000 |
-| Similarity search | 100 / min | 15,000 |
-| Tagging / model outputs (per track) | 180 / min | 50,000 |
+| Id | Meaning |
+|---|---|
+| `track_id` | Jamendo numeric track id, used for audio/display/download paths |
+| `cyanite_id` | Cyanite library id, passed to Cyanite search, similarity, and model-output endpoints |
 
-- Exceeding a rate limit returns a rate-limit error; wait a few seconds and retry.
-- Exceeding an event quota stops further calls for that action for the rest of the event.
-- **Cache tags locally and fetch each track once.** A search returns up to 500 IDs; only tag the tracks your app actually surfaces, and avoid bulk-tagging the catalog.
-- Per the [Challenge Agreement](CHALLENGE_AGREEMENT.md), data and model outputs are for event use only: do not publish or redistribute them, and delete them after the event.
+Cyanite calls live in [`backend/cyanite.py`](backend/cyanite.py), which wraps:
+
+| Cyanite capability | Backend function |
+|---|---|
+| Text prompt search | `search_by_prompt()` |
+| Single-seed similarity | `find_similar()` |
+| Multi-seed similarity | `find_similar_multi()` |
+| Model outputs / tags | `model_tags()` |
+
+Jamendo metadata is used to fill missing title/artist fields when Cyanite search returns
+catalog tracks outside the small seed data pack.
+
+---
+
+## 🧹 Maintenance
+
+Do not commit local runtime state:
+
+| Path | Why |
+|---|---|
+| `.env` | Local API keys |
+| `backend/.venv/` | Local Python environment |
+| `frontend/node_modules/` | Local npm install |
+| `backend/memory/*.md` | Runtime user memory |
+| Build caches | Generated artifacts |
+
+Recommended pre-commit checks:
+
+```bash
+cd backend && uv run pytest
+cd ../frontend && npm run build
+git status --short
+```
+
+---
 
 ## Terms and licenses
 
-- Participating in the Cyanite challenge means accepting [CHALLENGE_AGREEMENT.md](CHALLENGE_AGREEMENT.md). Acceptance is recorded by Munich Music Labs at registration; the copy here is the reference text.
-- Code and docs: MIT ([LICENSE](LICENSE)). Data pack: see [DATA_LICENSE.md](DATA_LICENSE.md).
+- Challenge brief: [`CHALLENGE.md`](CHALLENGE.md)
+- Challenge agreement: [`CHALLENGE_AGREEMENT.md`](CHALLENGE_AGREEMENT.md)
+- Code and docs: MIT, see [`LICENSE`](LICENSE)
+- Data pack terms: [`DATA_LICENSE.md`](DATA_LICENSE.md)
+
+<div align="center">
+
+Built for **HACKATUNE 2026** · Audio-first discovery with explainable recommendations
+
+</div>
