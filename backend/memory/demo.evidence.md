@@ -69,9 +69,17 @@
 - 👍 `libtr_01KVWZ46RSXQW19B28` · 「nice」 · feel: chill, ethereal, cool, warm, flowing, groovy · 2026-06-28T09:07:10
 - 👍 `libtr_01KVX9F60WNA1VZ4G6` · 「nice」 · feel: ethereal, calm, flowing · 2026-06-28T09:07:10
 - 👍 `libtr_01KVX9F5T4WFD0V7QE` · 「nice」 · feel: ethereal, calm, flowing · 2026-06-28T09:07:10
+<<<<<<< HEAD
 - 👍 `libtr_01KVXDJQ0J2M8T3GVP` · 「sun」 · feel: chill, calm, warm, ethereal, flowing · 2026-06-28T09:25:44
 - 👍 `libtr_01KVXEYJGY0X4KDMMN` · 「sun」 · feel: chill, warm, ethereal, flowing · 2026-06-28T09:25:44
 - 👍 `libtr_01KVWVJD8WSF4AATPB` · 「sun; rain」 · feel: ethereal, calm, flowing · 2026-06-28T09:27:11
 - 👍 `libtr_01KVXAB0JDZN5G1DHT` · 「sun; rain」 · feel: calm, ethereal, chill, flowing · 2026-06-28T09:27:11
 - 👍 `libtr_01KVWT8Z6A8NFAANM9` · 「thinking」 · feel: calm, ethereal, flowing · 2026-06-28T09:38:02
 - 👍 `libtr_01KVWW41158HEGYZ90` · 「soso」 · feel: calm, ethereal, chill, warm, flowing · 2026-06-28T09:49:54
+=======
+- 👍 `libtr_01KVWV6DYBZZHM60GP` · 「tired」 · feel: calm, chill, ethereal, flowing · 2026-06-28T09:35:02
+- 👍 `libtr_01KVX078B3VFHRDXKA` · 「tired」 · feel: calm, ethereal, flowing, pulsing, steady · 2026-06-28T09:35:02
+- 👍 `libtr_01KVXJWEF2C8K9SAEQ` · 「tired」 · feel: calm, ethereal, chill, flowing · 2026-06-28T09:35:02
+- 👍 `libtr_01KVWX2GB4XNZ6QGDG` · 「tired」 · feel: calm, chill, ethereal, flowing, steady · 2026-06-28T09:35:02
+- 👍 `libtr_01KVX3EYSBJB4JPGR3` · 「tired」 · feel: calm, chill, ethereal, steady, flowing · 2026-06-28T09:35:02
+>>>>>>> 079cebb (refactor: update demo memory and evidence documentation for clarity and consistency)
