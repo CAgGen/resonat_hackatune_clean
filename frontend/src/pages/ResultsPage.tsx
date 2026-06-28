@@ -274,23 +274,22 @@ const ResultsPage = () => {
     [],
   );
 
-  const handleSteer = () => {
+  // steer = go back to the taste board keeping this round's notes/likes so the
+  // user can append more. new round = wipe everything and start fresh.
+  const goToBoard = (reset: boolean) => {
+    const run = () => {
+      if (reset) resetRound();
+      navigate("/");
+    };
     if (!document.startViewTransition) {
       setIsLeaving(true);
-      leaveTimer.current = window.setTimeout(() => {
-        resetRound();
-        navigate("/");
-      }, 520);
+      leaveTimer.current = window.setTimeout(run, 520);
       return;
     }
-
-    document.startViewTransition(() => {
-      flushSync(() => {
-        resetRound();
-        navigate("/");
-      });
-    });
+    document.startViewTransition(() => flushSync(run));
   };
+  const handleSteer = () => goToBoard(false);
+  const handleNewRound = () => goToBoard(true);
 
   // Assign covers deduped across the on-screen cards, so a replacement never
   // reuses a cover already showing (the pool is far larger than the visible
@@ -372,7 +371,7 @@ const ResultsPage = () => {
       <GrainientBackground />
 
       {/* Left panel — the shrunk taste board. */}
-      <aside className="relative z-10 flex w-full shrink-0 flex-col overflow-y-auto border-b border-[var(--color-border)] p-5 md:h-screen md:w-96 md:overflow-y-auto md:border-b-0 md:border-r">
+      <aside className="relative z-10 flex w-full shrink-0 flex-col overflow-y-auto border-b border-[var(--color-border)] p-5 md:h-screen md:w-[28rem] md:overflow-y-auto md:border-b-0 md:border-r">
         <section className="shrink-0 border-b border-[var(--color-border)] pb-8">
           <h2 className="font-display mb-5 text-[24px] font-bold uppercase leading-none text-[var(--paper)]">
             Your taste board
@@ -407,7 +406,7 @@ const ResultsPage = () => {
           type="button"
           onClick={handleSteer}
           disabled={isLeaving}
-          className="steer-button font-display mt-5 flex min-h-11 w-full shrink-0 items-center gap-2 rounded-full border-[2.5px] border-solid border-[var(--paper)] px-5 py-3 text-left text-[16px] font-bold uppercase leading-[1.4] text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)] disabled:cursor-default"
+          className="steer-button font-display mt-auto flex min-h-11 w-full shrink-0 items-center gap-2 rounded-full border-[2.5px] border-solid border-[var(--paper)] px-5 py-3 text-left text-[16px] font-bold uppercase leading-[1.4] text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)] disabled:cursor-default"
         >
           <Plus size={18} />
           <span>steer...</span>
@@ -441,7 +440,7 @@ const ResultsPage = () => {
             {/* 开启新的一轮（回到 taste board）。 */}
             <button
               type="button"
-              onClick={handleSteer}
+              onClick={handleNewRound}
               disabled={isLeaving}
               className="font-display w-fit rounded-full border-[2.5px] border-solid border-[var(--paper)] px-4 py-2 text-[13px] font-bold uppercase leading-none text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)] disabled:cursor-default"
             >
