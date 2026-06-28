@@ -5,6 +5,7 @@ import GrainientBackground from "../components/GrainientBackground";
 import NoteCard from "../components/NoteCard";
 import PlaylistFan from "../components/PlaylistFan";
 import Stack from "../components/Stack";
+import TrackReasonModal from "../components/TrackReasonModal";
 import Plus from "../components/icons/Plus";
 import { useNotes } from "../context/NotesContext";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
@@ -39,6 +40,7 @@ const toTrack = (card: RecommendationCard): SampleTrack => ({
   artist: displayArtist(card),
   url: card.track_id ? trackUrl(card.track_id) : "",
   cover: coverForCard(card),
+  surprise: card.source === "surprise",
 });
 
 const LikedSongsShelf = ({
@@ -50,8 +52,6 @@ const LikedSongsShelf = ({
 }) => {
   const { playingId, play, stop } = useAudioPlayer(tracks);
 
-  if (tracks.length === 0) return null;
-
   return (
     <section className="mt-5 flex min-h-0 flex-col rounded-[6px] border border-[var(--color-border)] bg-[rgba(229,225,214,.045)] p-3 md:flex-1">
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] pb-3">
@@ -62,7 +62,12 @@ const LikedSongsShelf = ({
           {tracks.length}
         </span>
       </div>
-      <div className="mt-3 flex max-h-64 min-h-0 flex-col gap-2 overflow-y-auto pr-1 md:max-h-none">
+      <div className="mt-3 flex max-h-64 min-h-[88px] flex-col gap-2 overflow-y-auto pr-1 md:max-h-none">
+        {tracks.length === 0 && (
+          <p className="font-serif m-auto text-[13px] italic text-[var(--paper)] opacity-40">
+            liked tracks land here
+          </p>
+        )}
         {tracks.map((track) => {
           const numericTrackId = (track.trackId ?? track.id).match(/^\d+$/)
             ? track.trackId ?? track.id
@@ -97,7 +102,7 @@ const LikedSongsShelf = ({
                     <a
                       href={downloadUrl(numericTrackId)}
                       download
-                      className="font-display rounded-full border border-[var(--paper)] px-2.5 py-1 text-[11px] font-bold uppercase leading-none text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)]"
+                      className="font-display inline-flex items-center rounded-full border border-[var(--paper)] px-2.5 py-1 text-[11px] font-bold uppercase leading-none text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)]"
                     >
                       download
                     </a>
@@ -122,6 +127,65 @@ const LikedSongsShelf = ({
   );
 };
 
+// 把 memory.md 渲染成与页面一致的样式（不引 markdown 库）：限高可滚动 + 自动换行，
+// **x** 高亮为强调色，##／---／_脚注_ 各自成样式——不再露出原始 markdown 符号。
+const renderInline = (text: string) =>
+  text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    /^\*\*[^*]+\*\*$/.test(part) ? (
+      <strong key={i} className="font-bold text-[var(--yellow)]">
+        {part.slice(2, -2)}
+      </strong>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  );
+
+const MemoryProfile = ({ md }: { md: string }) => (
+  <div className="mt-4 max-h-[55vh] max-w-3xl overflow-y-auto rounded-[6px] border border-[var(--color-border)] bg-[rgba(229,225,214,.05)] p-5 [overflow-wrap:anywhere]">
+    {md.split("\n").map((raw, i) => {
+      const line = raw.trim();
+      if (!line || /^#\s*memory\b/i.test(line)) return null;
+      if (line === "---")
+        return <hr key={i} className="my-4 border-[var(--color-border)]" />;
+      if (line.startsWith("## "))
+        return (
+          <h3
+            key={i}
+            className="font-display mb-2 mt-1 text-[14px] font-bold uppercase tracking-[0.06em] text-[var(--paper)] opacity-70"
+          >
+            {line.slice(3)}
+          </h3>
+        );
+      if (/^_.*_$/.test(line))
+        return (
+          <p
+            key={i}
+            className="font-serif mt-3 text-[12px] italic leading-[1.5] text-[var(--paper)] opacity-45"
+          >
+            {line.replace(/^_|_$/g, "")}
+          </p>
+        );
+      if (/^\d+\.\s/.test(line))
+        return (
+          <p
+            key={i}
+            className="font-serif mt-1 text-[14px] leading-[1.6] text-[var(--paper)] opacity-80"
+          >
+            {renderInline(line)}
+          </p>
+        );
+      return (
+        <p
+          key={i}
+          className="font-serif mt-2 text-[16px] leading-[1.7] text-[var(--paper)] opacity-90"
+        >
+          {renderInline(line)}
+        </p>
+      );
+    })}
+  </div>
+);
+
 const ResultsPage = () => {
   const {
     notes,
@@ -131,13 +195,18 @@ const ResultsPage = () => {
     sendFeedback,
     unlikeTrack,
     explainTrack,
+    explainSoundsLikeYouTrack,
     explanationsByTrackId,
     completeRound,
     memoryMd,
+    soundsLikeYouCard,
     isFinishingRound,
+    resetRound,
   } = useNotes();
   const [isLeaving, setIsLeaving] = useState(false);
   const [feedbackMode, setFeedbackMode] = useState<FeedbackMode>("normal");
+  const [slyModalOpen, setSlyModalOpen] = useState(false);
+  const [slyLoading, setSlyLoading] = useState(false);
   const leaveTimer = useRef<number | null>(null);
   const navigate = useNavigate();
   const filledNotes = notes.filter((note) => note.body.trim());
@@ -156,13 +225,17 @@ const ResultsPage = () => {
     if (!document.startViewTransition) {
       setIsLeaving(true);
       leaveTimer.current = window.setTimeout(() => {
+        resetRound();
         navigate("/");
       }, 520);
       return;
     }
 
     document.startViewTransition(() => {
-      flushSync(() => navigate("/"));
+      flushSync(() => {
+        resetRound();
+        navigate("/");
+      });
     });
   };
 
@@ -194,6 +267,28 @@ const ResultsPage = () => {
     () => new Set(likedTracks.map((track) => track.id)),
     [likedTracks],
   );
+
+  const slyTrack = useMemo(
+    () => (soundsLikeYouCard ? toTrack(soundsLikeYouCard) : null),
+    [soundsLikeYouCard],
+  );
+  const slyExplanation = soundsLikeYouCard
+    ? explanationsByTrackId[`sly:${soundsLikeYouCard.cyanite_id}`]
+    : undefined;
+
+  const openSlyModal = async () => {
+    if (!soundsLikeYouCard) return;
+    setSlyModalOpen(true);
+    if (slyExplanation) return;
+    setSlyLoading(true);
+    try {
+      await explainSoundsLikeYouTrack(soundsLikeYouCard.cyanite_id);
+    } catch {
+      // 解释失败：modal 仍开着，TrackReasonModal 退到空文本。
+    } finally {
+      setSlyLoading(false);
+    }
+  };
 
   // 自动预取解释：串行（一个完成再下一个，不齐发）+ 试过就不再自动重试（成败都记），
   // 否则失败的 track 会被 effect 反复重发，把 OpenAI 打到 429。手动重试走卡片的 onExplain。
@@ -270,23 +365,34 @@ const ResultsPage = () => {
           <h1 className="font-display max-w-3xl text-[28px] font-bold uppercase leading-none tracking-[-0.01em] text-[var(--paper)]">
             A playlist built from your memo
           </h1>
-          <button
-            type="button"
-            aria-pressed={antiAddiction}
-            onClick={() =>
-              setFeedbackMode((mode) =>
-                mode === "anti_addiction" ? "normal" : "anti_addiction",
-              )
-            }
-            className="font-display w-fit rounded-full border-[2.5px] border-solid border-[var(--paper)] px-4 py-2 text-[13px] font-bold uppercase leading-none text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)]"
-            style={{
-              background: antiAddiction ? "var(--yellow)" : undefined,
-              borderColor: antiAddiction ? "var(--yellow)" : undefined,
-              color: antiAddiction ? "var(--ink)" : undefined,
-            }}
-          >
-            anti-addiction {antiAddiction ? "on" : "off"}
-          </button>
+          <div className="flex w-fit items-center gap-3">
+            <button
+              type="button"
+              aria-pressed={antiAddiction}
+              onClick={() =>
+                setFeedbackMode((mode) =>
+                  mode === "anti_addiction" ? "normal" : "anti_addiction",
+                )
+              }
+              className="font-display w-fit rounded-full border-[2.5px] border-solid border-[var(--paper)] px-4 py-2 text-[13px] font-bold uppercase leading-none text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)]"
+              style={{
+                background: antiAddiction ? "var(--yellow)" : undefined,
+                borderColor: antiAddiction ? "var(--yellow)" : undefined,
+                color: antiAddiction ? "var(--ink)" : undefined,
+              }}
+            >
+              anti-addiction {antiAddiction ? "on" : "off"}
+            </button>
+            {/* 开启新的一轮（回到 taste board）。 */}
+            <button
+              type="button"
+              onClick={handleSteer}
+              disabled={isLeaving}
+              className="font-display w-fit rounded-full border-[2.5px] border-solid border-[var(--paper)] px-4 py-2 text-[13px] font-bold uppercase leading-none text-[var(--paper)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)] disabled:cursor-default"
+            >
+              new round
+            </button>
+          </div>
         </div>
 
         <div className="mt-8">
@@ -329,11 +435,65 @@ const ResultsPage = () => {
         )}
 
         {memoryMd && (
-          <pre className="font-serif mt-6 max-w-3xl whitespace-pre-wrap text-[18px] leading-[1.5] text-[var(--paper)] opacity-90">
-            {memoryMd}
-          </pre>
+          <div className="mt-6">
+            <h2 className="font-display text-[20px] font-bold uppercase leading-none text-[var(--paper)]">
+              your feel, learned
+            </h2>
+            {/* 画像在左，「sounds like you」专属卡片贴在右侧（窄屏堆叠）。 */}
+            <div className="mt-4 flex flex-col gap-6 lg:flex-row lg:items-start">
+              <div className="min-w-0 lg:flex-1">
+                <MemoryProfile md={memoryMd} />
+              </div>
+              {soundsLikeYouCard && slyTrack && (
+                <div className="w-full shrink-0 lg:w-60">
+                  <p className="font-display mb-2 text-[12px] font-bold uppercase tracking-[0.06em] text-[var(--yellow)]">
+                    sounds like you
+                  </p>
+                  {/* 专属卡片：点开 → 基于画像解释「为什么这听起来像你本人」。 */}
+                  <button
+                    type="button"
+                    onClick={() => void openSlyModal()}
+                    aria-label={`Why ${slyTrack.title} sounds like you`}
+                    className="group flex w-full flex-col overflow-hidden rounded-[6px] border-[2.5px] border-solid border-[var(--yellow)] bg-[var(--paper)] text-left text-[var(--ink)] shadow-[var(--shadow-block)] outline-none transition-transform hover:-translate-y-1"
+                  >
+                    <div className="relative aspect-square bg-[var(--color-border)]">
+                      <img
+                        src={slyTrack.cover}
+                        alt={`${slyTrack.title} cover art`}
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
+                      <span className="font-display absolute bottom-2 left-2 rounded-full border border-[var(--ink)] bg-[var(--yellow)] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--ink)]">
+                        ✦ this is you
+                      </span>
+                    </div>
+                    <div className="flex flex-1 flex-col px-3 pb-3 pt-3">
+                      <div className="font-display line-clamp-2 text-[16px] font-bold leading-tight">
+                        {slyTrack.title}
+                      </div>
+                      <div className="font-serif mt-0.5 truncate text-[12px] italic opacity-60">
+                        by {slyTrack.artist}
+                      </div>
+                      <span className="font-display mt-3 text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--ink)] opacity-50 transition-opacity group-hover:opacity-90">
+                        tap for why →
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </section>
+
+      {slyModalOpen && slyTrack && (
+        <TrackReasonModal
+          track={{ track: slyTrack.title, artist: slyTrack.artist, cover: slyTrack.cover }}
+          reasonText={slyExplanation?.why_text ?? ""}
+          isLoading={slyLoading && !slyExplanation}
+          title="why this sounds like you"
+          onClose={() => setSlyModalOpen(false)}
+        />
+      )}
     </main>
   );
 };

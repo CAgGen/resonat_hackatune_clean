@@ -98,6 +98,40 @@ def search_args(posts: list[dict], profile_md: str = "") -> dict:
     return {"query": args.get("query", ""), "metadata_filter": args.get("metadata_filter") or None}
 
 
+_SURPRISE_PROMPT = (pathlib.Path(__file__).resolve().parent / "prompts" / "surprise_agent.md").read_text("utf-8")
+_SOUNDS_LIKE_YOU_PROMPT = (pathlib.Path(__file__).resolve().parent / "prompts" / "sounds_like_you.md").read_text("utf-8")
+
+
+def sounds_like_you_args(profile_md: str = "") -> dict | None:
+    """「听起来像你」检索参数：完全忠实长期画像、零偏移。无 key 或没画像 → None（不出专属卡）。"""
+    if not config.OPENAI_API_KEY or not profile_md.strip():
+        return None
+    instructions = _SOUNDS_LIKE_YOU_PROMPT.replace("{{user_profile}}", profile_md.strip())
+    payload = _responses(instructions, "为「听起来像你」专属位发起一次检索。",
+                         tools=[_SEARCH_TOOL],
+                         tool_choice={"type": "function", "name": "search_by_prompt"})
+    args = _tool_call_args(payload)
+    query = args.get("query", "")
+    return {"query": query, "metadata_filter": None} if query else None
+
+
+def surprise_args(posts: list[dict], profile_md: str = "") -> dict | None:
+    """惊喜位检索参数：忠于本轮需求、刻意偏离画像。无 key 或没画像可偏离 → None（不出惊喜卡）。"""
+    if not config.OPENAI_API_KEY or not profile_md.strip():
+        return None
+    history, request = _split(posts)
+    instructions = (_SURPRISE_PROMPT
+                    .replace("{{history}}", history)
+                    .replace("{{user_profile}}", profile_md.strip())
+                    .replace("{{request}}", request))
+    payload = _responses(instructions, "为惊喜位发起一次检索。",
+                         tools=[_SEARCH_TOOL],
+                         tool_choice={"type": "function", "name": "search_by_prompt"})
+    args = _tool_call_args(payload)
+    query = args.get("query", "")
+    return {"query": query, "metadata_filter": args.get("metadata_filter") or None} if query else None
+
+
 # ─────────────────────────── 内部 ───────────────────────────
 def _render(stage: str, posts: list[dict], profile_md: str) -> str:
     """str.replace 注入占位符。用户文本可能含 {} ，str.replace 不会炸。"""
@@ -193,5 +227,9 @@ if __name__ == "__main__":  # 自检：fallback + str.replace 注入 + tool-call
     ]})
     assert args["query"] == "high energy workout"
     assert args["metadata_filter"] == {"BpmV2.tag": {"$gte": 120}}
+
+    # sounds_like_you / surprise：无 key 或空画像 → None（不打网络）
+    assert sounds_like_you_args("flowing ethereal calm") is None  # 无 key
+    assert sounds_like_you_args("") is None and surprise_args(posts, "") is None  # 空画像
 
     print("intent_agent self-check OK")

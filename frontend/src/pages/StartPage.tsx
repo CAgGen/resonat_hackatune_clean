@@ -19,6 +19,7 @@ const StartPage = () => {
     finishEditing,
     confirmSound,
     isLoadingCards,
+    isBuilding,
     cardsError,
   } = useNotes();
   const [toast, setToast] = useState<string | null>(null);
@@ -115,9 +116,20 @@ const StartPage = () => {
               type="button"
               onClick={handleFindMySound}
               disabled={isLeaving || isLoadingCards}
-              className="font-display find-sound-button -rotate-3 rounded-full bg-[var(--yellow)] px-6 py-3 text-[16px] font-bold uppercase leading-[1.4] text-[var(--ink)] shadow-[var(--shadow-block)] transition duration-150 hover:rotate-0 hover:bg-[var(--red)] hover:text-[var(--paper)] disabled:cursor-default"
+              className="font-display find-sound-button inline-flex items-center -rotate-3 rounded-full bg-[var(--yellow)] px-6 py-3 text-[16px] font-bold uppercase leading-[1.4] text-[var(--ink)] shadow-[var(--shadow-block)] transition duration-150 hover:rotate-0 hover:bg-[var(--red)] hover:text-[var(--paper)] disabled:cursor-default"
             >
-              {isLoadingCards ? "Finding..." : "Find my sound"}
+              {isLoadingCards ? (
+                <>
+                  Finding your sound
+                  <span className="ml-2 flex gap-1">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current" />
+                  </span>
+                </>
+              ) : (
+                "Find my sound"
+              )}
             </button>
           )}
 
@@ -166,6 +178,22 @@ const StartPage = () => {
       </Canvas>
 
       <Slogan />
+
+      {/* Building the sound brief (Enter / idle) — bottom pill so it can show
+          even while the memos stay on screen. */}
+      {isBuilding && (
+        <div
+          role="status"
+          className="font-display fixed bottom-24 left-1/2 z-[10000] flex -translate-x-1/2 items-center gap-3 rounded-full bg-[var(--paper)] px-5 py-3 text-[14px] font-bold uppercase leading-none text-[var(--ink)] shadow-[var(--shadow-block)]"
+        >
+          <span>Building your sound brief</span>
+          <span className="flex gap-1">
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink)] [animation-delay:-0.3s]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink)] [animation-delay:-0.15s]" />
+            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--ink)]" />
+          </span>
+        </div>
+      )}
 
       {toast && (
         <div

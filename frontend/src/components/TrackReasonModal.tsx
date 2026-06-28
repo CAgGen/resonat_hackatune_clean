@@ -5,8 +5,7 @@ interface TrackReasonModalProps {
   track: MusicCardsTrack;
   reasonText?: string;
   isLoading?: boolean;
-  requested?: boolean;
-  onRequestReason?: () => void;
+  title?: string;
   onClose: () => void;
 }
 
@@ -14,15 +13,18 @@ const TrackReasonModal = ({
   track,
   reasonText = "",
   isLoading = false,
-  requested = false,
-  onRequestReason,
+  title = "why this song found you",
   onClose,
 }: TrackReasonModalProps) => {
   const [visibleTokens, setVisibleTokens] = useState(0);
-  const tokens = (isLoading ? "Finding the musical evidence..." : reasonText).match(/\S+\s*/g) ?? [];
+  const tokens = reasonText.match(/\S+\s*/g) ?? [];
   const visibleText = tokens.slice(0, visibleTokens).join("");
 
+  // Typewriter runs once, keyed on the resolved text — not on token length, so
+  // the loading→loaded swap no longer resets it mid-type (the "反悔" flicker).
+  // ponytail: single fetch upstream, no streaming to reconcile.
   useEffect(() => {
+    if (isLoading || tokens.length === 0) return;
     setVisibleTokens(0);
     const timer = window.setInterval(() => {
       setVisibleTokens((count) => {
@@ -35,7 +37,8 @@ const TrackReasonModal = ({
     }, 42);
 
     return () => window.clearInterval(timer);
-  }, [track, tokens.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reasonText, isLoading]);
 
   return (
     <div
@@ -65,26 +68,14 @@ const TrackReasonModal = ({
             id="track-reason-title"
             className="font-display mt-2 whitespace-nowrap text-[30px] font-bold leading-none sm:text-[36px]"
           >
-            why this song found you
+            {title}
           </h2>
-          {requested ? (
-            <p className="font-serif mt-6 min-h-40 text-[18px] leading-[1.6] text-[var(--ink)]">
-              {visibleText}
-              {visibleTokens < tokens.length && (
-                <span className="ml-1 inline-block h-5 w-2 animate-pulse rounded-sm bg-[var(--blue)] align-middle" />
-              )}
-            </p>
-          ) : (
-            <div className="mt-6 flex min-h-40 flex-col items-start justify-center">
-              <button
-                type="button"
-                onClick={onRequestReason}
-                className="font-display rounded-full border-[2.5px] border-solid border-[var(--ink)] px-6 py-3 text-[16px] font-bold uppercase leading-[1.4] text-[var(--ink)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)]"
-              >
-                why this song? →
-              </button>
-            </div>
-          )}
+          <p className="font-serif mt-6 min-h-40 text-[18px] leading-[1.6] text-[var(--ink)]">
+            {isLoading ? "Finding the musical evidence..." : visibleText}
+            {!isLoading && visibleTokens < tokens.length && (
+              <span className="ml-1 inline-block h-5 w-2 animate-pulse rounded-sm bg-[var(--blue)] align-middle" />
+            )}
+          </p>
         </div>
       </section>
     </div>

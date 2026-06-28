@@ -53,6 +53,11 @@ class ExplainIn(BaseModel):
     track_id: str
 
 
+class ExplainSoundsLikeYouIn(BaseModel):
+    user_id: str = "demo"
+    cyanite_id: str
+
+
 # ─────────── 响应裁剪（只把前端要的字段吐出去）───────────
 def _intent_view(s: dict) -> dict:
     return {"session_id": s["id"], "whiteboard_posts": s["whiteboard_posts"],
@@ -132,6 +137,20 @@ def explain(body: ExplainIn):
 @app.get("/your-sound")
 def your_sound(user_id: str = "demo"):
     return {"memory_md": orchestrator.your_sound(user_id)}
+
+
+@app.post("/explain-sounds-like-you")
+def explain_sounds_like_you(body: ExplainSoundsLikeYouIn):
+    """Why the sounds-like-you track IS this user — based on their taste profile."""
+    _require_cyanite_key()
+    return _guard(orchestrator.explain_sounds_like_you, body.user_id, body.cyanite_id)
+
+
+@app.get("/sounds-like-you")
+def sounds_like_you(user_id: str = "demo"):
+    """「听起来像你」：基于长期画像搜一首 AI 眼中的「你本人」专属歌。"""
+    _require_cyanite_key()
+    return _guard(orchestrator.sounds_like_you, user_id)
 
 
 # ─────────── 高质量下载代理 ───────────

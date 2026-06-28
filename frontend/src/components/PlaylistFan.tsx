@@ -13,9 +13,6 @@ const SLOTS = [
   { x: 312, y: 58, rot: 16, z: 8 },
 ];
 const CENTER_SLOT = Math.floor(SLOTS.length / 2);
-// Test-only: always tag the 4th card as the "surprise" recommendation.
-// Real surprise flag should come per-card from the backend later.
-const SURPRISE_SLOT = 3;
 const PRELOAD_ORDER = [CENTER_SLOT, 1, 3, 0, 4];
 const HOVER_PLAY_DELAY_MS = 180;
 const REPLACE_CARD_DELAY_MS = 240;
@@ -54,7 +51,6 @@ const PlaylistFan = ({
   const [selected, setSelected] = useState<SampleTrack | null>(null);
   const [selectedReason, setSelectedReason] = useState("");
   const [isReasonLoading, setIsReasonLoading] = useState(false);
-  const [reasonRequested, setReasonRequested] = useState(false);
   const [fanScale, setFanScale] = useState(1);
 
   const nextInstanceId = useRef(0);
@@ -172,7 +168,6 @@ const PlaylistFan = ({
     replaceTimers.current.push(timer);
   };
 
-<<<<<<< HEAD
   const dismiss = (slotIndex: number, track: SampleTrack) => {
     removeCard(slotIndex, track, onDismiss);
   };
@@ -189,24 +184,14 @@ const PlaylistFan = ({
     removeCard(slotIndex, track, onLike);
   };
 
-=======
-  // 打开卡片只开 modal，不取解释（省掉一次 OpenAI 调用）。
->>>>>>> 1556e0e (feat: implement round completion functionality)
+  // 打开卡片即取解释——「why this song」按钮已删，改为自动加载。
   const openTrack = (track: SampleTrack) => {
     modalOpenRef.current = true;
     play(track.id);
     setSelected(track);
     setSelectedReason("");
-    setIsReasonLoading(false);
-    setReasonRequested(false);
-  };
-
-  // 用户在 modal 里点「why」才取解释——explain 真正只在显式点击时发生。
-  const requestReason = () => {
-    if (!selected || reasonRequested) return;
-    setReasonRequested(true);
     setIsReasonLoading(true);
-    void onExplain?.(selected)
+    void onExplain?.(track)
       .then((reason) => setSelectedReason(reason))
       .catch(() =>
         setSelectedReason(
@@ -274,7 +259,7 @@ const PlaylistFan = ({
                       cover={card.track.cover}
                       isPlaying={playingId === card.track.id}
                       liked={likedIds?.has(card.track.id) ?? false}
-                      surprise={i === SURPRISE_SLOT}
+                      surprise={card.track.surprise ?? false}
                       downloadUrl={
                         (card.track.trackId ?? card.track.id).match(/^\d+$/)
                           ? downloadUrl(card.track.trackId ?? card.track.id)
@@ -303,8 +288,6 @@ const PlaylistFan = ({
           }}
           reasonText={selectedReason}
           isLoading={isReasonLoading}
-          requested={reasonRequested}
-          onRequestReason={requestReason}
           onClose={() => {
             modalOpenRef.current = false;
             setSelected(null);

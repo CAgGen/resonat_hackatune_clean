@@ -26,3 +26,31 @@
 - 「sad music」→ liked libtr_01KVX5080DWJRZ9N1E   (2026-06-28T05:58:25)
 - 「sad song」→ liked libtr_01KVXJQPHMZV11W0TD   (2026-06-28T06:05:02)
 - 「sad song」→ liked libtr_01KVXE206D5SCPR1K3   (2026-06-28T06:05:09)
+- 👍 `libtr_01KVWXGM99QKMCB7KW` · 「sad music; 电子乐」 · feel: calm, ethereal, dark, mysterious, flowing · 2026-06-28T06:26:36
+- 👍 `libtr_01KVX8BJ6CF4XFW5TC` · 「sad music; 电子乐」 · feel: chill, calm, sad, cool, ethereal, mysterious, unpolished, flowing, steady · 2026-06-28T06:26:36
+- 👍 `libtr_01KVX79H6R8EV2HWP2` · 「sad music; 电子乐」 · feel: chill, calm, cool, ethereal, sparkling, flowing · 2026-06-28T06:26:36
+- 👍 `libtr_01KVWWGV5JP9KQSAHJ` · 「sad music; 电子乐」 · feel: calm, chill, ethereal, sparkling, cool, flowing · 2026-06-28T06:26:36
+- 👍 `libtr_01KVWXGJ7A0N3TG25X` · 「sad music; 电子乐」 · feel: calm, chill, sexy, cool, luxurious, ethereal, sparkling, flowing · 2026-06-28T06:26:36
+- 👍 `libtr_01KVXA1XY8Q89NYNRH` · 「sad music; 电子乐」 · feel: calm, chill, cool, flowing · 2026-06-28T06:26:36
+- 👍 `libtr_01KVX7QT0SMP1M0TQB` · 「sad music; 电子乐」 · feel: calm, cool, ethereal, flowing, groovy · 2026-06-28T06:26:36
+- 👍 `libtr_01KVWT6CPN6PKS1BM8` · 「开心; 古典」 · feel: epic, heroic, stomping · 2026-06-28T06:32:57
+- 👍 `libtr_01KVXM83K2DAY3AH6C` · 「开心; 古典」 · feel: happy, epic, sophisticated, heroic, stomping, bouncing, flowing · 2026-06-28T06:32:57
+- 👍 `libtr_01KVXM82Y0EXTFHQ15` · 「开心; 古典」 · feel: happy, sophisticated, stomping, bouncing · 2026-06-28T06:32:57
+- 👍 `libtr_01KVXM83E70X9CZ3QD` · 「开心; 古典」 · feel: happy, sophisticated, bouncing, stomping · 2026-06-28T06:32:57
+- 👍 `libtr_01KVXM82CECHAZXWH7` · 「开心; 古典」 · feel: happy, romantic, sophisticated, flowing, bouncing, stomping · 2026-06-28T06:32:57
+- 👍 `libtr_01KVXCB2AM3GE13R92` · 「开心; 古典」 · feel: romantic, happy, epic, sophisticated, flowing, stomping · 2026-06-28T06:32:57
+- 👍 `libtr_01KVX38PWP25GZ4XZM` · 「sad music; crazy」 · feel: ethereal, calm, energetic, pulsing, flowing, running, driving, robotic · 2026-06-28T07:07:50
+- 👍 `libtr_01KVX5PSGEKAP824WE` · 「sad music; crazy」 · feel: energetic, mysterious, running, pulsing · 2026-06-28T07:07:50
+- 👍 `libtr_01KVX5HWA108STYN9G` · 「sad music; crazy」 · feel: dark, mysterious, ethereal, running, flowing, driving, pulsing · 2026-06-28T07:07:50
+- 👍 `libtr_01KVX7ERV4EBBTBG5Y` · 「sad music; crazy」 · feel: dark, mysterious, pulsing · 2026-06-28T07:07:50
+- 👍 `libtr_01KVX3JYBX05AW3HQ0` · 「sad music; crazy」 · feel: energetic, epic, ethereal, mysterious, powerful, heroic, retro, driving, pulsing, robotic · 2026-06-28T07:07:50
+- 👍 `libtr_01KVWWC4DM2X8DQMSE` · 「happy」 · feel: happy, sparkling, pulsing, stomping, driving, bouncing · 2026-06-28T07:33:28
+- 👍 `libtr_01KVWZ7N2777J8DT2T` · 「happy」 · feel: happy, chill, uplifting, sparkling, pulsing · 2026-06-28T07:33:28
+- 👍 `libtr_01KVX8G30YR4FNRQNW` · 「happy」 · feel: happy, uplifting, chill, sparkling, luxurious, ethereal, cool, warm, pulsing, groovy, bouncing, driving · 2026-06-28T07:33:28
+- 👍 `libtr_01KVWZ7N38DK4416J5` · 「happy」 · feel: happy, chill, uplifting, sparkling, pulsing · 2026-06-28T07:33:28
+- 👍 `libtr_01KVX16FVJXJGKTA1Z` · 「happy」 · feel: happy, chill, calm, luxurious, flowing · 2026-06-28T07:33:28
+- 👍 `libtr_01KVXGBD725FYEFFXC` · 「lonely lonely lonly」 · feel: calm, ethereal, mysterious, flowing · 2026-06-28T07:52:02
+- 👍 `libtr_01KVX9S3T7B1B7QBWY` · 「lonely lonely lonly」 · feel: ethereal, calm, flowing · 2026-06-28T07:52:02
+- 👍 `libtr_01KVX8PSBT9V53YZMS` · 「lonely lonely lonly」 · feel: ethereal, calm, flowing · 2026-06-28T07:52:02
+- 👍 `libtr_01KVWW91C5R66T4CJM` · 「lonely lonely lonly」 · feel: dark, sad, ethereal, mysterious, flowing · 2026-06-28T07:52:02
+- 👍 `libtr_01KVXJCN61V9Z239R1` · 「lonely lonely lonly」 · feel: dark, ethereal, calm, flowing · 2026-06-28T07:52:02

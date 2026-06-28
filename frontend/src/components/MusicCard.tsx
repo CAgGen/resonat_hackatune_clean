@@ -229,7 +229,7 @@ const MusicCard = ({
                   href={downloadUrl}
                   download
                   onClick={() => setShowLicense(false)}
-                  className="font-display rounded-full border-[2.5px] border-solid border-[var(--ink)] px-5 py-2.5 text-[14px] font-bold uppercase transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)]"
+                  className="font-display rounded-full border border-[var(--ink)] px-2.5 py-1 text-[11px] font-bold uppercase leading-none text-[var(--ink)] transition-colors hover:border-[var(--yellow)] hover:bg-[var(--yellow)] hover:text-[var(--ink)]"
                 >
                   Download
                 </a>

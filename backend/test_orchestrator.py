@@ -83,6 +83,34 @@ def test_confirm_fills_visible_and_backlog(monkeypatch, tmp_path):
     assert len(orch.SESSIONS[sid]["free_text_backlog"]) == len(SEARCH) - orch.config.VISIBLE_N
 
 
+def test_surprise_card_only_in_confirm(monkeypatch, tmp_path):
+    calls = _fake_seams(monkeypatch, tmp_path)
+    monkeypatch.setattr(orch.memory, "read_memory", lambda u: "core feeling: flowing")  # 有画像可偏离
+    monkeypatch.setattr(orch.intent_agent, "surprise_args",
+                        lambda posts, profile_md="": {"query": "surprise", "metadata_filter": None})
+
+    def search(q, limit=20, metadata_filter=None):
+        calls["search"].append((q, limit, metadata_filter))
+        return [{"cyanite_id": "surprise_hit", "score": 0.7}] if q == "surprise" else SEARCH
+    monkeypatch.setattr(orch.cyanite, "search_by_prompt", search)
+
+    sid = client.post("/intent", json={"text": "dark", "user_id": "us"}).json()["session_id"]
+    cards = client.post("/intent/confirm", json={"session_id": sid}).json()["cards"]
+    surprises = [c for c in cards if c["source"] == "surprise"]
+    assert len(surprises) == 1 and surprises[0]["cyanite_id"] == "surprise_hit"
+    assert len(cards) == orch.config.VISIBLE_N  # 仍 5 张：挤出的普通卡退回 backlog
+
+    # like 惊喜卡 → 划走并用 similar 回填；回填的不再是惊喜
+    client.post("/feedback", json={"session_id": sid, "track_id": "surprise_hit", "verdict": "like"})
+    assert all(c["source"] != "surprise" for c in orch.SESSIONS[sid]["visible_cards"])
+
+
+def test_no_surprise_without_profile(monkeypatch, tmp_path):
+    sid, _ = _confirmed("noprof", monkeypatch, tmp_path)  # read_memory 为空 → 不出惊喜
+    cards = client.post("/intent/confirm", json={"session_id": sid}).json()["cards"]
+    assert all(c["source"] != "surprise" for c in cards)
+
+
 def test_confirm_translates_cyanite_http_error(monkeypatch):
     monkeypatch.setattr(app.config, "CYANITE_API_KEY", "test-key")
     resp = requests.Response()
@@ -112,21 +140,16 @@ def test_normal_like_swipes_and_refills_from_clicked_track_similarity(monkeypatc
     assert calls["similar"] == 1                       # 普通 like 立刻用被 liked 曲搜相似
     assert calls["similar_args"] == [("libtr_0", 10)]
     assert orch.SESSIONS[sid]["liked_tracks"] == ["libtr_0"]
-<<<<<<< HEAD
     ids = [c["track_id"] for c in body["cards"]]
     assert "libtr_0" not in ids                         # 被 liked 的卡划走
     assert "sim_0" in ids                               # 最高 similar_score 回填
     assert len(ids) == orch.config.VISIBLE_N
     assert ids != before
-    assert (tmp_path / "u2.evidence.md").read_text(encoding="utf-8").count("\n- ") == 1
-=======
-    assert [c["track_id"] for c in body["cards"]] == before  # 当前列表不变
-    assert not (tmp_path / "u2.evidence.md").exists()        # like 不落记忆（一轮结束才统一落）
+    assert not (tmp_path / "u2.evidence.md").exists()   # like 不落记忆（一轮结束才统一落）
 
     fin = client.post("/round/finish", json={"session_id": sid}).json()   # ⑦ 完成本轮
     assert (tmp_path / "u2.evidence.md").read_text(encoding="utf-8").count("\n- ") == 1  # 此刻才写 1 行
     assert "你的感觉" in fin["memory_md"]
->>>>>>> 1556e0e (feat: implement round completion functionality)
 
 
 def test_anti_addiction_like_records_without_swiping(monkeypatch, tmp_path):
@@ -253,6 +276,12 @@ def test_explain_similar_refill_uses_session_liked_seed(monkeypatch, tmp_path):
 
 def test_explain_profile_semantic_refill_uses_profile_metadata(monkeypatch, tmp_path):
     sid, _ = _confirmed("profile_explain", monkeypatch, tmp_path)
+    # anti_addiction 的语义回填用的是过往已建立的画像（来自之前已完成的轮），
+    # 而记忆只在一轮结束时落，所以这里预置一份画像模拟老用户。
+    (tmp_path / "profile_explain.memory.md").write_text(
+        "# memory · profile_explain\n\n## 你的感觉\n你偏向 calm、warm 的感觉。\n",
+        encoding="utf-8",
+    )
     client.post(
         "/feedback",
         json={

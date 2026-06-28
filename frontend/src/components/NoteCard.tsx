@@ -206,7 +206,6 @@ const NoteCard = ({
         settledDateRef.current = new Date();
       }
       setMemoStateRef.current("complete");
-      onFinishEdit?.();
     }
   });
 
@@ -215,11 +214,14 @@ const NoteCard = ({
       ref={cardRef}
       data-memo-state={initialState}
       onMouseDown={(event) => {
-        if (readOnly || stateRef.current !== "complete") return;
-        event.preventDefault();
+        if (readOnly) return;
         const input = textAreaRef.current;
-        input?.focus();
-        input?.setSelectionRange(input.value.length, input.value.length);
+        // Clicking the textarea itself: let the browser place the caret.
+        // Clicking anywhere else in the card: focus it and edit.
+        if (!input || event.target === input) return;
+        event.preventDefault();
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
         setMemoState("typing");
       }}
       className={`${widthClass} ${fill ? "flex" : ""} relative box-border grid grid-rows-[1fr_auto] gap-[18px] overflow-hidden rounded-[10px] transition-[box-shadow,transform] duration-150 ease-out focus-within:shadow-[var(--memo-shadow),0_0_0_2px_var(--memo-caret)]`}
@@ -257,6 +259,16 @@ const NoteCard = ({
             applyFit(next);
             setMemoState(next ? "typing" : "empty");
           }}
+          onKeyDown={(event) => {
+            // Enter builds the prompt straight away (Shift+Enter still wraps).
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              if (textAreaRef.current?.value.trim()) {
+                textAreaRef.current.blur();
+                onFinishEdit?.();
+              }
+            }
+          }}
           onBlur={() => {
             const next = textAreaRef.current?.value.trim()
               ? "complete"
@@ -265,7 +277,6 @@ const NoteCard = ({
               settledDateRef.current = new Date();
             }
             setMemoState(next);
-            onFinishEdit?.();
           }}
           readOnly={readOnly}
           rows={1}

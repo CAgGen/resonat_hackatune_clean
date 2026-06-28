@@ -76,3 +76,16 @@ export type FinishRoundResponse = { memory_md: string; liked: string[] };
 // 「完成本轮」：把这一轮选的歌落成「感觉」记忆，返回更新后的画像。
 export const finishRound = (session_id: string) =>
   post<FinishRoundResponse>("/round/finish", { session_id });
+
+export type SoundsLikeYouResponse = {
+  card: RecommendationCard | null;
+  memory_md: string;
+};
+
+export const soundsLikeYou = (user_id = "demo") =>
+  fetch(`${BASE}/sounds-like-you?user_id=${user_id}`).then(
+    (r) => r.json() as Promise<SoundsLikeYouResponse>,
+  );
+
+export const explainSoundsLikeYou = (user_id: string, cyanite_id: string) =>
+  post<ExplanationResponse>("/explain-sounds-like-you", { user_id, cyanite_id });

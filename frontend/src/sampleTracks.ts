@@ -11,6 +11,8 @@ export interface SampleTrack {
   artist: string;
   url: string;
   cover: string;
+  // Backend marks the deliberate "special treat" card (source==="surprise").
+  surprise?: boolean;
 }
 
 // Mirrors the backend audio_url() / README pattern.
