@@ -354,7 +354,10 @@ def explain(session_id: str, track_id: str) -> dict:
     evidence_md = memory.read_evidence(s["user_id"])
     provided_likes = user_profiles.liked_cyanite_ids(s["user_id"])
     recommended_tags = cyanite.model_tags(cyanite_id, config.EXPLAIN_TAG_MODELS)
-    similar_rows = cyanite.find_similar(cyanite_id, limit=config.EXPLAIN_SIMILAR_LIMIT)
+    try:
+        similar_rows = cyanite.find_similar(cyanite_id, limit=config.EXPLAIN_SIMILAR_LIMIT)
+    except Exception:
+        similar_rows = []      
     display_by_id = {row["cyanite_id"]: cyanite.display(row["cyanite_id"], row.get("track_id", ""))
                      for row in similar_rows}
     historical_candidates = explanation_builder.build_historical_candidates_from_similar_rows(
