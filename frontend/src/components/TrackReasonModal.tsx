@@ -29,7 +29,7 @@ const TrackReasonModal = ({
   const visibleText = tokens.slice(0, visibleTokens).join("");
 
   // Typewriter runs once, keyed on the resolved text — not on token length, so
-  // the loading→loaded swap no longer resets it mid-type (the "反悔" flicker).
+  // the loading→loaded swap no longer resets it mid-type (the regret flicker).
   // ponytail: single fetch upstream, no streaming to reconcile.
   useEffect(() => {
     if (isLoading || tokens.length === 0) return;
@@ -85,7 +85,7 @@ const TrackReasonModal = ({
             )}
           </p>
 
-          {/* 角标：情绪随时间的时间轴，点一下跳到那一分钟。时间戳直接来自 Cyanite segments。 */}
+          {/* Markers: mood-over-time timeline; click to seek to that minute. Timestamps come directly from Cyanite segments. */}
           {!isLoading && segments.length > 0 && (
             <div className="mt-5">
               <p className="font-display text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--ink)] opacity-50">

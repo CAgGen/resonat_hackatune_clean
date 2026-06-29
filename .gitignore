@@ -15,7 +15,7 @@ __pycache__/
 # node
 node_modules/
 
-# 运行时记忆（每用户 markdown，非源码）
+# Runtime memory (per-user markdown, not source)
 backend/memory/*.md
 
 # Cyanite tag cache (do not commit API outputs)

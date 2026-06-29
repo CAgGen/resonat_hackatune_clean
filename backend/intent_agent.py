@@ -1,26 +1,27 @@
-"""接缝 · 意图分析 Agent。
+"""Seam · intent analysis agent.
 
-两段式，两次独立 LLM 调用，prompt 在 prompts/intent_agent.md，占位符用 str.replace 注入：
-  ① interpret -> compile_query_card()：确认门生成给用户看的精简解读（~200字）。
-                 白板每变一次重跑（重新解读），不碰检索。
-  ② search    -> search_args()：用户确认后，编排层 confirm() 调一次，tool calling 让模型
-                 发起 search_by_prompt(query, metadata_filter)，我们解析出参数；真正打
-                 Cyanite 由 confirm() 执行（全链路单次检索调用）。
+Two-stage flow with two independent LLM calls. The prompt lives in prompts/intent_agent.md,
+and placeholders are injected with str.replace:
+  1. interpret -> compile_query_card(): the confirmation gate creates a concise user-facing
+     interpretation (~200 words). Rerun whenever the whiteboard changes; no retrieval.
+  2. search -> search_args(): after user confirmation, orchestrator.confirm() calls this once.
+     Tool calling asks the model to issue search_by_prompt(query, metadata_filter); we parse
+     the arguments, and confirm() performs the real Cyanite call (one retrieval call end to end).
 
-契约（编排层依赖）:
-    compile_query_card(posts, profile_md="") -> dict   # ① 确认门的 Query Card（仅解读）
-    search_args(posts, profile_md="")       -> dict    # ② 检索参数 {query, metadata_filter}
+Contract (used by orchestration):
+    compile_query_card(posts, profile_md="") -> dict   # confirmation-gate Query Card (interpretation only)
+    search_args(posts, profile_md="")       -> dict    # retrieval args {query, metadata_filter}
 
-compile_query_card 返回:
+compile_query_card returns:
     {
-      "interpretation_plain": str,          # ① 解读
-      "free_text_query": "",                # 留空，confirm 调 search_args 后回填
-      "metadata_filter": None,              # 同上
+      "interpretation_plain": str,          # interpretation
+      "free_text_query": "",                # left empty; confirm fills after search_args
+      "metadata_filter": None,              # same
     }
-search_args 返回:
+search_args returns:
     {"query": str, "metadata_filter": dict | None}
 
-有 OPENAI_API_KEY 走 LLM；没 key 走 deterministic fallback，离线编排/测试照跑。
+Use the LLM when OPENAI_API_KEY is present; otherwise use a deterministic fallback so offline orchestration/tests run.
 """
 from __future__ import annotations
 
@@ -32,7 +33,8 @@ import requests
 
 import config
 
-# 兜底：前端纯文本渲染，剥掉模型偶尔漏带的 markdown（**加粗**、行首 - / # 列表/标题符号）。
+# Fallback: frontend renders plain text, so strip occasional markdown leaked by the model
+# (bold markers, leading list/header symbols).
 _MD = re.compile(r"\*\*|__|`|^\s*[-*•#]+\s+", re.M)
 
 
@@ -42,8 +44,8 @@ def _plain(text: str) -> str:
 _PROMPT_PATH = pathlib.Path(__file__).resolve().parent / "prompts" / "intent_agent.md"
 _PROMPT = _PROMPT_PATH.read_text(encoding="utf-8")
 
-# search_by_prompt 的工具 schema（Responses API function tool）。
-# metadata_filter 是自由形态的 MongoDB 风格对象，不做 strict 约束。
+# search_by_prompt tool schema (Responses API function tool).
+# metadata_filter is a free-form MongoDB-style object, so do not constrain it strictly.
 _SEARCH_TOOL = {
     "type": "function",
     "name": "search_by_prompt",
@@ -65,7 +67,7 @@ _SEARCH_TOOL = {
 
 
 def compile_query_card(posts: list[dict], profile_md: str = "") -> dict:
-    """① 确认门：只出解读。检索参数留到 confirm 调 search_args 回填。"""
+    """1. Confirmation gate: only produce interpretation. Retrieval args are filled by confirm after search_args."""
     return {
         "interpretation_plain": interpret(posts, profile_md),
         "free_text_query": "",
@@ -74,7 +76,7 @@ def compile_query_card(posts: list[dict], profile_md: str = "") -> dict:
 
 
 def interpret(posts: list[dict], profile_md: str = "") -> str:
-    """① 解读阶段：返回给用户看的 ~200字 精简解读。"""
+    """1. Interpretation stage: return a concise ~200-word user-facing interpretation."""
     if not config.OPENAI_API_KEY:
         return f"I understand the target as: {_join(posts, profile_md)}"
     payload = _responses(_render("interpret", posts, profile_md), "Give the interpretation now.")
@@ -82,7 +84,7 @@ def interpret(posts: list[dict], profile_md: str = "") -> str:
 
 
 def search_args(posts: list[dict], profile_md: str = "") -> dict:
-    """② 检索阶段：tool calling，解析出 {query, metadata_filter}。"""
+    """2. Retrieval stage: use tool calling and parse {query, metadata_filter}."""
     if not config.OPENAI_API_KEY:
         return {"query": _join(posts, profile_md), "metadata_filter": None}
     payload = _responses(
@@ -100,7 +102,8 @@ _SOUNDS_LIKE_YOU_PROMPT = (pathlib.Path(__file__).resolve().parent / "prompts" /
 
 
 def sounds_like_you_args(profile_md: str = "") -> dict | None:
-    """「听起来像你」检索参数：完全忠实长期画像、零偏移。无 key 或没画像 → None（不出专属卡）。"""
+    """Sounds-like-you retrieval args: faithful to the long-term profile, with zero offset.
+    No key or no profile -> None (no dedicated card)."""
     if not config.OPENAI_API_KEY or not profile_md.strip():
         return None
     instructions = _SOUNDS_LIKE_YOU_PROMPT.replace("{{user_profile}}", profile_md.strip())
@@ -113,7 +116,8 @@ def sounds_like_you_args(profile_md: str = "") -> dict | None:
 
 
 def surprise_args(posts: list[dict], profile_md: str = "") -> dict | None:
-    """惊喜位检索参数：忠于本轮需求、刻意偏离画像。无 key 或没画像可偏离 → None（不出惊喜卡）。"""
+    """Surprise-slot retrieval args: faithful to this round's need, deliberately offset from the profile.
+    No key or no profile to offset from -> None (no surprise card)."""
     if not config.OPENAI_API_KEY or not profile_md.strip():
         return None
     history, request = _split(posts)
@@ -129,9 +133,9 @@ def surprise_args(posts: list[dict], profile_md: str = "") -> dict | None:
     return {"query": query, "metadata_filter": args.get("metadata_filter") or None} if query else None
 
 
-# ─────────────────────────── 内部 ───────────────────────────
+# ─────────────────────────── Internals ───────────────────────────
 def _render(stage: str, posts: list[dict], profile_md: str) -> str:
-    """str.replace 注入占位符。用户文本可能含 {} ，str.replace 不会炸。"""
+    """Inject placeholders with str.replace. User text may contain {}, and str.replace will not explode."""
     history, request = _split(posts)
     return (
         _PROMPT
@@ -143,7 +147,7 @@ def _render(stage: str, posts: list[dict], profile_md: str) -> str:
 
 
 def _split(posts: list[dict]) -> tuple[str, str]:
-    """便签拆成 (history, 当前 request)。当前 = 最后一条，其余进 history。"""
+    """Split notes into (history, current request). Current is the last note; all others go into history."""
     clean = [(str(p.get("role", "post")), str(p.get("text", "")).strip())
              for p in posts if str(p.get("text", "")).strip()]
     if not clean:
@@ -154,7 +158,7 @@ def _split(posts: list[dict]) -> tuple[str, str]:
 
 
 def _join(posts: list[dict], profile_md: str) -> str:
-    """fallback 用：把便签 + 画像拼成一句检索词。"""
+    """Fallback helper: combine notes + profile into one search query."""
     parts = [str(p.get("text", "")).strip() for p in posts if str(p.get("text", "")).strip()]
     if profile_md.strip():
         parts.append(f"taste profile: {profile_md.strip()}")
@@ -192,31 +196,31 @@ def _output_text(payload: dict) -> str:
 
 
 def _tool_call_args(payload: dict) -> dict:
-    """从 Responses 输出里抠出 search_by_prompt 的 function_call 参数。"""
+    """Extract search_by_prompt function_call args from Responses output."""
     for item in payload.get("output", []):
         if item.get("type") == "function_call" and item.get("name") == "search_by_prompt":
             return json.loads(item.get("arguments") or "{}")
     raise ValueError("OpenAI response did not contain a search_by_prompt tool call")
 
 
-if __name__ == "__main__":  # 自检：fallback + str.replace 注入 + tool-call 解析
-    config.OPENAI_API_KEY = ""  # 强制走离线 fallback，自检不打网络
-    posts = [{"role": "initial_prompt", "text": "适合健身的"}, {"role": "follow_up", "text": "要带劲 {x}"}]
+if __name__ == "__main__":  # Self-check: fallback + str.replace injection + tool-call parsing.
+    config.OPENAI_API_KEY = ""  # Force offline fallback; self-check does not touch the network.
+    posts = [{"role": "initial_prompt", "text": "good for workouts"}, {"role": "follow_up", "text": "make it energetic {x}"}]
 
-    # fallback（无 key）：interpret 出解读、search_args 出 query，均不炸 {}
-    assert interpret(posts, "喜欢电子") == "I understand the target as: 适合健身的; 要带劲 {x}; taste profile: 喜欢电子"
-    assert search_args(posts, "喜欢电子") == {"query": "适合健身的; 要带劲 {x}; taste profile: 喜欢电子",
-                                              "metadata_filter": None}
+    # Fallback (no key): interpret returns interpretation and search_args returns query; neither breaks on {}.
+    assert interpret(posts, "likes electronic") == "I understand the target as: good for workouts; make it energetic {x}; taste profile: likes electronic"
+    assert search_args(posts, "likes electronic") == {"query": "good for workouts; make it energetic {x}; taste profile: likes electronic",
+                                                      "metadata_filter": None}
 
-    card = compile_query_card(posts, "喜欢电子")
-    assert card["free_text_query"] == "" and card["metadata_filter"] is None  # 检索参数留到 confirm
+    card = compile_query_card(posts, "likes electronic")
+    assert card["free_text_query"] == "" and card["metadata_filter"] is None  # Retrieval args are left for confirm.
 
-    r = _render("search", posts, "喜欢电子 {y}")
+    r = _render("search", posts, "likes electronic {y}")
     assert "{{stage}}" not in r and "{{request}}" not in r and "{{user_profile}}" not in r
-    assert "要带劲 {x}" in r and "喜欢电子 {y}" in r  # 用户文本里的 {} 原样保留
+    assert "make it energetic {x}" in r and "likes electronic {y}" in r  # Preserve user-provided {} literally.
 
     h, req = _split(posts)
-    assert req == "要带劲 {x}" and "适合健身的" in h
+    assert req == "make it energetic {x}" and "good for workouts" in h
 
     args = _tool_call_args({"output": [
         {"type": "function_call", "name": "search_by_prompt",
@@ -225,8 +229,8 @@ if __name__ == "__main__":  # 自检：fallback + str.replace 注入 + tool-call
     assert args["query"] == "high energy workout"
     assert args["metadata_filter"] == {"BpmV2.tag": {"$gte": 120}}
 
-    # sounds_like_you / surprise：无 key 或空画像 → None（不打网络）
-    assert sounds_like_you_args("flowing ethereal calm") is None  # 无 key
-    assert sounds_like_you_args("") is None and surprise_args(posts, "") is None  # 空画像
+    # sounds_like_you / surprise: no key or empty profile -> None (no network).
+    assert sounds_like_you_args("flowing ethereal calm") is None  # No key.
+    assert sounds_like_you_args("") is None and surprise_args(posts, "") is None  # Empty profile.
 
     print("intent_agent self-check OK")

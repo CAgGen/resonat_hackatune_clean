@@ -1,4 +1,4 @@
-"""编排 · 回填候选挑选。按 Cyanite similar_score 选最相似的一首。"""
+"""Orchestration · refill candidate selection. Pick the most similar track by Cyanite similar_score."""
 from __future__ import annotations
 
 

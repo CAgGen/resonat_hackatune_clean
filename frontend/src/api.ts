@@ -1,4 +1,4 @@
-// 后端 4 端点的 typed 封装。base 走 Vite 代理（见 vite.config.ts）。
+// Typed wrappers for backend endpoints. base goes through the Vite proxy (see vite.config.ts).
 const BASE = "/api";
 
 export type SoftTarget = { dim: string; value: string; weight: number };
@@ -75,7 +75,7 @@ export const yourSound = (user_id = "demo") =>
 
 export type FinishRoundResponse = { memory_md: string; liked: string[] };
 
-// 「完成本轮」：把这一轮选的歌落成「感觉」记忆，返回更新后的画像。
+// "Finish this round": persist selected songs as feeling memory and return the updated profile.
 export const finishRound = (session_id: string) =>
   post<FinishRoundResponse>("/round/finish", { session_id });
 

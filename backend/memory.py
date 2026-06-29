@@ -1,21 +1,22 @@
-"""接缝 · 记忆系统。
+"""Seam · memory system.
 
 ═══════════════════════════════════════════════════════════════════
-  跨会话记忆 = 两个 markdown 文件，无 DB（PRD §3）:
-    memory/<user_id>.evidence.md   仅追加，原始事实（每行：一首 like 的歌 + 它的「感觉」标签）
-    memory/<user_id>.memory.md     自然语言「感觉」画像，证据的派生物
+  Cross-session memory = two markdown files, no DB (PRD §3):
+    memory/<user_id>.evidence.md   append-only raw facts (one liked song + its feel tags per line)
+    memory/<user_id>.memory.md     natural-language feel profile derived from evidence
 ═══════════════════════════════════════════════════════════════════
 
-契约（编排层依赖，签名不变）:
-    read_memory(user_id) -> str          画像（memory.md）；/intent 注入、/your-sound 直吐。没有则 ""。
+Contract (used by orchestration; signatures stay unchanged):
+    read_memory(user_id) -> str          profile (memory.md); injected into /intent and returned by /your-sound. Empty if missing.
     append_evidence(user_id, prompt, liked_track_ids) -> None
-        一轮结束时调用：为每首 like 的歌取「感觉」标签并仅追加，绝不改旧行。
-    rewrite_memory(user_id) -> str       从 evidence raw 重建画像，整段重写。
+        called at the end of a round: fetch feel tags for each liked song and append only; never edit old lines.
+    rewrite_memory(user_id) -> str       rebuild profile from raw evidence and rewrite the whole section.
 
-设计取向（用户定）:
-- 只用「感觉」维度：mood / character / movement —— 不碰乐器、曲风、BPM 等硬变量。
-- 取标签时只请求这三个模型，连乐器的 segment 大块都不下载 → 天然无上下文爆炸。
-- 每轮（一个 prompt + 用户选的歌）结束才出画像；永远从 raw 重建，不在旧画像上改 → 防漂移。
+Design choices (user-defined):
+- Use only feel dimensions: mood / character / movement; avoid hard variables like instruments, genre, BPM.
+- Request only those three models; do not download large instrument segments, avoiding context blow-up naturally.
+- Produce a profile only after each round (one prompt + selected songs); always rebuild from raw evidence instead
+  of editing the old profile, preventing drift.
 """
 from __future__ import annotations
 import datetime as _dt
@@ -26,9 +27,9 @@ from collections import Counter
 MEM_DIR = pathlib.Path(__file__).parent / "memory"
 MEM_DIR.mkdir(exist_ok=True)
 
-WINDOW_ROUNDS = 8    # 重建只看最近 N 轮 —— evidence.md 可无限增长，喂 LLM 的恒定有界
+WINDOW_ROUNDS = 8    # Rebuild from only the latest N rounds; evidence.md can grow forever while LLM input stays bounded.
 FEELING_DIMS = ("moods", "character", "movement")
-FEELING_MODELS = ["MoodSimpleV2", "CharacterV2", "MovementV2"]   # 只取感觉，不下载硬变量
+FEELING_MODELS = ["MoodSimpleV2", "CharacterV2", "MovementV2"]   # Fetch only feelings, not hard variables.
 
 
 def _ev_path(user_id: str) -> pathlib.Path:
@@ -75,7 +76,7 @@ def _feeling_tags(track_id: str) -> list[str]:
 
 
 def append_evidence(user_id: str, whiteboard_context: str, liked_track_ids: list[str]) -> None:
-    """一轮结束时把这一轮 like 的每首歌 + 它的感觉标签追加进 evidence.md（仅追加）。"""
+    """Append each liked song from this round + its feel tags to evidence.md (append-only)."""
     p = _ev_path(user_id)
     if not p.exists():
         p.write_text(f"# evidence · {user_id}\n\n## Feedback log (one liked track + its feel tags per line)\n",
@@ -84,11 +85,12 @@ def append_evidence(user_id: str, whiteboard_context: str, liked_track_ids: list
     with p.open("a", encoding="utf-8") as f:
         for cid in liked_track_ids:
             feel = ", ".join(_feeling_tags(cid)) or "-"
-            f.write(f"- 👍 `{cid}` · 「{whiteboard_context}」 · feel: {feel} · {ts}\n")
+            f.write(f"- 👍 `{cid}` · \"{whiteboard_context}\" · feel: {feel} · {ts}\n")
 
 
-# 每行尾部带 timestamp；同一轮（一次 finish_round）共享 prompt+ts。
-_EV_RE = re.compile(r"`([^`]+)`\s*·\s*「(.*?)」\s*·\s*feel:\s*(.*?)\s*·\s*([\dT:\-]+)\s*$")
+# Each line ends with a timestamp; one round (one finish_round call) shares prompt+ts.
+# Accept both the old corner-quote format and the current ASCII quote format for existing memory files.
+_EV_RE = re.compile(r"`([^`]+)`\s*·\s*(?:「(.*?)」|\"(.*?)\")\s*·\s*feel:\s*(.*?)\s*·\s*([\dT:\-]+)\s*$")
 
 
 def _parse_rounds(user_id: str) -> list[dict]:
@@ -100,7 +102,7 @@ def _parse_rounds(user_id: str) -> list[dict]:
         m = _EV_RE.search(line)
         if not m:
             continue
-        prompt, feelstr, ts = m.group(2), m.group(3), m.group(4)
+        prompt, feelstr, ts = m.group(2) or m.group(3), m.group(4), m.group(5)
         feel = [x.strip() for x in feelstr.split(",") if x.strip() and x.strip() != "-"]
         rkey = (prompt, ts)
         if rkey != key:
@@ -117,15 +119,15 @@ def _facts(rounds: list[dict]) -> dict:
     stats (total likes / rounds / date span)."""
     recent = rounds[-WINDOW_ROUNDS:]
     timeline = []
-    feel_rounds: Counter = Counter()      # how many rounds each feel appears in → find persistent core
-    spectrum: Counter = Counter()         # cross-round occurrence count → feel spectrum
+    feel_rounds: Counter = Counter()      # how many rounds each feel appears in -> find persistent core
+    spectrum: Counter = Counter()         # cross-round occurrence count -> feel spectrum
     for r in recent:
         timeline.append({"prompt": r["prompt"], "date": r["ts"][:10], "n": r["n"],
                          "feels": [t for t, _ in r["feels"].most_common(5)]})
         spectrum.update(r["feels"])
         for t in set(r["feels"]):
             feel_rounds[t] += 1
-    core = [t for t, c in feel_rounds.most_common() if c >= 2][:6]   # appears in ≥2 rounds = persistent core
+    core = [t for t, c in feel_rounds.most_common() if c >= 2][:6]   # appears in >=2 rounds = persistent core
     dates = [r["date"] for r in timeline]
     return {"timeline": timeline, "core": core,
             "latest": timeline[-1] if timeline else None, "n_rounds": len(rounds),
@@ -219,31 +221,33 @@ def rewrite_memory(user_id: str) -> str:
 
 
 if __name__ == "__main__":
-    # self-check: evidence 内联存感觉标签；按轮分组；演化感知（小众的最近一轮不被大轮碾压）
+    # Self-check: evidence stores feel tags inline; groups by round; evolution-aware
+    # (a smaller recent round is not buried by a larger older round).
     import config as _cfg
-    _cfg.OPENAI_API_KEY = ""    # 强制确定性兜底，自检不打网络
+    _cfg.OPENAI_API_KEY = ""    # Force deterministic fallback; self-check does not touch the network.
     u = "__selftest__"
     for p in (_ev_path(u), _mem_path(u)):
         p.unlink(missing_ok=True)
 
-    # 第 1 轮 7 首 sad/calm 系，第 2 轮 2 首 epic/happy 系——数量悬殊，考验“最近轮不被碾压”
+    # Round 1 has seven sad/calm-ish tracks; round 2 has two epic/happy-ish tracks.
+    # The volume difference tests that the recent round is not buried.
     fake = {f"s{i}": ["calm", "ethereal", "flowing", "chill"] for i in range(7)}
     fake.update({"h1": ["epic", "heroic", "stomping"], "h2": ["happy", "epic", "stomping"]})
-    _feeling_tags = lambda cid: fake.get(cid, [])   # 替换 seam，不打网络
+    _feeling_tags = lambda cid: fake.get(cid, [])   # Replace seam; no network.
 
     assert "No likes yet" in rewrite_memory(u), "No likes: profile should not appear"
 
-    append_evidence(u, "sad music; 电子乐", [f"s{i}" for i in range(7)])   # 第 1 轮
-    append_evidence(u, "开心; 古典", ["h1", "h2"])                          # 第 2 轮（最近，小众）
-    assert read_evidence(u).count("\n- ") == 9, "9 首 like = 9 行，append 不覆盖"
+    append_evidence(u, "sad music; electronic", [f"s{i}" for i in range(7)])   # Round 1.
+    append_evidence(u, "happy; classical", ["h1", "h2"])                       # Round 2 (recent, niche).
+    assert read_evidence(u).count("\n- ") == 9, "9 liked tracks = 9 lines; append does not overwrite"
 
     rounds = _parse_rounds(u)
-    assert len(rounds) == 2, f"应按 prompt 分成两轮，得到 {len(rounds)}"
+    assert len(rounds) == 2, f"should split into two rounds by prompt, got {len(rounds)}"
 
     out = rewrite_memory(u)
     assert "calm" in out and "flowing" in out, "round 1 feels should be in timeline"
     assert "epic" in out and "stomping" in out, "round 2 (most recent) feels should not be buried by round 1 volume"
-    assert '"sad music; 电子乐"' in out and '"开心; 古典"' in out, "timeline should preserve each round's context"
+    assert '"sad music; electronic"' in out and '"happy; classical"' in out, "timeline should preserve each round's context"
     assert "piano" not in out and "ambient" not in out, "hard variables (instruments/genre) should not appear"
     for p in (_ev_path(u), _mem_path(u)):
         p.unlink(missing_ok=True)

@@ -186,7 +186,7 @@ const PlaylistFan = ({
     removeCard(slotIndex, track, onLike);
   };
 
-  // 打开卡片即取解释——「why this song」按钮已删，改为自动加载。
+  // Fetch the explanation when opening a card; the "why this song" button was removed in favor of auto-load.
   const openTrack = (track: SampleTrack) => {
     modalOpenRef.current = true;
     play(track.id);

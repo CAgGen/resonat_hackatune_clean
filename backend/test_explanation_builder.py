@@ -64,9 +64,9 @@ def test_select_explanation_example_uses_source_liked_track_above_threshold():
 def test_extract_liked_track_ids_from_evidence_preserves_recent_order_without_duplicates():
     evidence_md = """# evidence · demo
 
-## 反馈记录
-- 「night drive」→ liked hist_1, hist_2   (2026-06-27T20:00:00)
-- 「quiet focus」→ liked hist_2, hist_3   (2026-06-27T21:00:00)
+## Feedback log
+- "night drive" -> liked hist_1, hist_2   (2026-06-27T20:00:00)
+- "quiet focus" -> liked hist_2, hist_3   (2026-06-27T21:00:00)
 """
 
     assert explanation_builder.extract_liked_track_ids_from_evidence(evidence_md) == [
@@ -103,8 +103,8 @@ def test_select_explanation_example_uses_historical_like_when_no_session_source(
 def test_build_historical_candidates_from_similar_rows_keeps_only_historical_likes():
     evidence_md = """# evidence · demo
 
-## 反馈记录
-- 「night drive」→ liked hist_low, hist_high   (2026-06-27T20:00:00)
+## Feedback log
+- "night drive" -> liked hist_low, hist_high   (2026-06-27T20:00:00)
 """
     similar_rows = [
         {"cyanite_id": "not_liked", "score": 0.99},
@@ -170,8 +170,8 @@ def test_build_historical_candidates_from_similar_rows_includes_provided_user_li
 def test_build_historical_candidates_from_similar_rows_supports_id_aliases_and_limit():
     evidence_md = """# evidence · demo
 
-## 反馈记录
-- 「quiet focus」→ liked jam_1, libtr_2   (2026-06-27T21:00:00)
+## Feedback log
+- "quiet focus" -> liked jam_1, libtr_2   (2026-06-27T21:00:00)
 """
     similar_rows = [
         {"track_id": "jam_1", "score": 0.84},
@@ -222,7 +222,7 @@ def test_fallback_explanation_is_grounded_and_english(monkeypatch):
 
 
 def test_fallback_prompt_pool_track_does_not_claim_similarity(monkeypatch):
-    # 没 source_liked_track 的 free_text 卡（首批 / backlog 兜底）不能瞎说「来自你喜欢的歌附近」。
+    # free_text cards without source_liked_track (first batch / backlog fallback) must not claim liked-track similarity.
     monkeypatch.setattr(config, "OPENAI_API_KEY", "", raising=False)
     result = explanation_builder.build_explanation(
         "The listener likes calm, dark, low-energy music.",
@@ -239,7 +239,7 @@ def test_fallback_prompt_pool_track_does_not_claim_similarity(monkeypatch):
 
 
 def test_similar_source_forces_seed_title_and_artist_when_llm_omits_it(monkeypatch):
-    # similarById 卡：模型若漏掉种子曲名，确定性兜底必须把「歌名 by 作者」补回 why_text 开头。
+    # similarById cards: if the model omits the seed title, deterministic fallback must prepend "title by artist".
     monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-test", raising=False)
 
     class FakeResponse:
@@ -271,7 +271,7 @@ def test_similar_source_forces_seed_title_and_artist_when_llm_omits_it(monkeypat
 
 
 def test_similar_source_does_not_duplicate_seed_when_llm_already_named_it(monkeypatch):
-    # 模型已点名种子歌时不重复补句。
+    # Do not duplicate the prepended sentence when the model already named the seed song.
     monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-test", raising=False)
 
     class FakeResponse:

@@ -1,5 +1,5 @@
-"""编排框架自检。monkeypatch 三个接缝（cyanite / intent_agent / memory），离线跑主循环。
-新逻辑：普通模式 like 会划走并用该曲 similarById 回填；防沉迷模式 like 只记录不划走。
+"""Orchestration framework self-check. Monkeypatch the three seams (cyanite / intent_agent / memory) and run the main loop offline.
+New logic: normal-mode likes swipe away and refill with similarById from that track; anti-addiction likes only record and do not swipe.
 run: uv run pytest -v
 """
 from fastapi.testclient import TestClient
@@ -10,14 +10,14 @@ import orchestrator as orch
 
 client = TestClient(app.app)
 
-SEARCH = [{"cyanite_id": f"libtr_{i}", "score": 1.0 - i / 10} for i in range(8)]   # 8 首
-SIMILAR = [{"cyanite_id": f"sim_{i}", "score": 0.9 - i / 10} for i in range(3)]    # 单种子相似
-MULTI = [{"cyanite_id": f"multi_{i}", "score": 0.95 - i / 10} for i in range(3)]   # 多种子相似
+SEARCH = [{"cyanite_id": f"libtr_{i}", "score": 1.0 - i / 10} for i in range(8)]   # 8 tracks.
+SIMILAR = [{"cyanite_id": f"sim_{i}", "score": 0.9 - i / 10} for i in range(3)]    # Single-seed similar.
+MULTI = [{"cyanite_id": f"multi_{i}", "score": 0.95 - i / 10} for i in range(3)]   # Multi-seed similar.
 PROFILE = [{"cyanite_id": f"profile_{i}", "score": 0.88 - i / 10} for i in range(3)]
 
 
 def _fake_seams(monkeypatch, tmp_path):
-    """返回计数器 dict，记录单种子 / 多种子相似各被调了几次。"""
+    """Return a counter dict tracking how often single-seed / multi-seed similarity are called."""
     calls = {"similar": 0, "multi": 0, "search": []}
     monkeypatch.setattr(app.config, "CYANITE_API_KEY", "test-key")
 
@@ -51,8 +51,8 @@ def _fake_seams(monkeypatch, tmp_path):
                         lambda posts, profile_md="": {"query": "test intent", "metadata_filter": None})
     monkeypatch.setattr(orch.memory, "_ev_path", lambda u: tmp_path / f"{u}.evidence.md")
     monkeypatch.setattr(orch.memory, "_mem_path", lambda u: tmp_path / f"{u}.memory.md")
-    monkeypatch.setattr(orch.memory, "_feeling_tags", lambda cid: ["calm", "warm"])  # 不打网络
-    monkeypatch.setattr(orch.memory, "_llm_profile", lambda info: None)              # 走确定性兜底
+    monkeypatch.setattr(orch.memory, "_feeling_tags", lambda cid: ["calm", "warm"])  # No network.
+    monkeypatch.setattr(orch.memory, "_llm_profile", lambda info: None)              # Deterministic fallback.
     monkeypatch.setattr(orch.user_profiles, "liked_cyanite_ids", lambda u: [])
     return calls
 
@@ -71,7 +71,7 @@ def test_intent_does_not_search_until_confirm(monkeypatch, tmp_path):
                         lambda q, limit=20, metadata_filter=None: hit.update(n=hit["n"] + 1) or SEARCH)
     sid = client.post("/intent", json={"text": "dark betrayal", "user_id": "u1"}).json()["session_id"]
     client.post("/intent/follow-up", json={"session_id": sid, "text": "more restrained"})
-    assert hit["n"] == 0  # 确认门：确认前不检索
+    assert hit["n"] == 0  # Confirmation gate: no retrieval before confirmation.
 
 
 def test_confirm_fills_visible_and_backlog(monkeypatch, tmp_path):
@@ -83,7 +83,7 @@ def test_confirm_fills_visible_and_backlog(monkeypatch, tmp_path):
 
 def test_surprise_card_only_in_confirm(monkeypatch, tmp_path):
     calls = _fake_seams(monkeypatch, tmp_path)
-    monkeypatch.setattr(orch.memory, "read_memory", lambda u: "core feeling: flowing")  # 有画像可偏离
+    monkeypatch.setattr(orch.memory, "read_memory", lambda u: "core feeling: flowing")  # Has profile to offset from.
     monkeypatch.setattr(orch.intent_agent, "surprise_args",
                         lambda posts, profile_md="": {"query": "surprise", "metadata_filter": None})
 
@@ -96,15 +96,15 @@ def test_surprise_card_only_in_confirm(monkeypatch, tmp_path):
     cards = client.post("/intent/confirm", json={"session_id": sid}).json()["cards"]
     surprises = [c for c in cards if c["source"] == "surprise"]
     assert len(surprises) == 1 and surprises[0]["cyanite_id"] == "surprise_hit"
-    assert len(cards) == orch.config.VISIBLE_N  # 仍 5 张：挤出的普通卡退回 backlog
+    assert len(cards) == orch.config.VISIBLE_N  # Still 5 cards: displaced normal card returns to backlog.
 
-    # like 惊喜卡 → 划走并用 similar 回填；回填的不再是惊喜
+    # Like surprise card -> swipe away and refill with similar; refill is no longer surprise.
     client.post("/feedback", json={"session_id": sid, "track_id": "surprise_hit", "verdict": "like"})
     assert all(c["source"] != "surprise" for c in orch.SESSIONS[sid]["visible_cards"])
 
 
 def test_no_surprise_without_profile(monkeypatch, tmp_path):
-    sid, _ = _confirmed("noprof", monkeypatch, tmp_path)  # read_memory 为空 → 不出惊喜
+    sid, _ = _confirmed("noprof", monkeypatch, tmp_path)  # read_memory empty -> no surprise.
     cards = client.post("/intent/confirm", json={"session_id": sid}).json()["cards"]
     assert all(c["source"] != "surprise" for c in cards)
 
@@ -135,18 +135,18 @@ def test_normal_like_swipes_and_refills_from_clicked_track_similarity(monkeypatc
     sid, calls = _confirmed("u2", monkeypatch, tmp_path)
     before = [c["track_id"] for c in orch.SESSIONS[sid]["visible_cards"]]
     body = client.post("/feedback", json={"session_id": sid, "track_id": "libtr_0", "verdict": "like"}).json()
-    assert calls["similar"] == 1                       # 普通 like 立刻用被 liked 曲搜相似
+    assert calls["similar"] == 1                       # Normal like immediately searches similarity from the liked track.
     assert calls["similar_args"] == [("libtr_0", 10)]
     assert orch.SESSIONS[sid]["liked_tracks"] == ["libtr_0"]
     ids = [c["track_id"] for c in body["cards"]]
-    assert "libtr_0" not in ids                         # 被 liked 的卡划走
-    assert "sim_0" in ids                               # 最高 similar_score 回填
+    assert "libtr_0" not in ids                         # Liked card was swiped away.
+    assert "sim_0" in ids                               # Highest similar_score refill.
     assert len(ids) == orch.config.VISIBLE_N
     assert ids != before
-    assert not (tmp_path / "u2.evidence.md").exists()   # like 不落记忆（一轮结束才统一落）
+    assert not (tmp_path / "u2.evidence.md").exists()   # Like does not persist memory; round end writes it.
 
-    fin = client.post("/round/finish", json={"session_id": sid}).json()   # ⑦ 完成本轮
-    assert (tmp_path / "u2.evidence.md").read_text(encoding="utf-8").count("\n- ") == 1  # 此刻才写 1 行
+    fin = client.post("/round/finish", json={"session_id": sid}).json()   # 7. Finish round.
+    assert (tmp_path / "u2.evidence.md").read_text(encoding="utf-8").count("\n- ") == 1  # Only now writes one line.
     assert "Your Feel" in fin["memory_md"]
 
 
@@ -202,15 +202,15 @@ def test_anti_addiction_dislike_refills_from_profile_semantic_search(monkeypatch
 def test_dislike_with_one_like_uses_single_seed(monkeypatch, tmp_path):
     sid, calls = _confirmed("u3", monkeypatch, tmp_path)
     client.post("/feedback", json={"session_id": sid, "track_id": "libtr_0", "verdict": "like"})
-    assert calls["similar"] == 1 and calls["multi"] == 0   # like 已用被点击曲搜相似
+    assert calls["similar"] == 1 and calls["multi"] == 0   # Like already searched similarity from the clicked track.
     body = client.post("/feedback", json={"session_id": sid, "track_id": "libtr_1", "verdict": "dislike"}).json()
-    assert calls["similar"] == 1 and calls["multi"] == 0   # liked 集合没变 → 复用候选池
+    assert calls["similar"] == 1 and calls["multi"] == 0   # liked set unchanged -> reuse candidate pool.
     ids = [c["track_id"] for c in body["cards"]]
-    assert "libtr_1" not in ids                            # 被移除
-    assert "sim_0" in ids                                  # 最高 similar_score 回填
+    assert "libtr_1" not in ids                            # Removed.
+    assert "sim_0" in ids                                  # Highest similar_score refill.
     refill = next(c for c in body["cards"] if c["track_id"] == "sim_0")
-    assert "final_score" not in refill and "ranking_basis" not in refill  # debug metadata 不给前端
-    assert len(ids) == orch.config.VISIBLE_N               # 槽位数不变
+    assert "final_score" not in refill and "ranking_basis" not in refill  # Debug metadata is not sent to frontend.
+    assert len(ids) == orch.config.VISIBLE_N               # Slot count unchanged.
 
 
 def test_normal_likes_use_clicked_track_similarity_without_multi_seed(monkeypatch, tmp_path):
@@ -218,29 +218,29 @@ def test_normal_likes_use_clicked_track_similarity_without_multi_seed(monkeypatc
     client.post("/feedback", json={"session_id": sid, "track_id": "libtr_0", "verdict": "like"})
     client.post("/feedback", json={"session_id": sid, "track_id": "libtr_2", "verdict": "like"})
     body = client.post("/feedback", json={"session_id": sid, "track_id": "libtr_1", "verdict": "dislike"}).json()
-    assert calls["similar"] == 2 and calls["multi"] == 0   # 每次 like 只用被点击歌曲做单种子相似
+    assert calls["similar"] == 2 and calls["multi"] == 0   # Each like uses only the clicked song for single-seed similarity.
     ids = [c["track_id"] for c in body["cards"]]
     assert "sim_0" in ids
     assert len(ids) == orch.config.VISIBLE_N
 
 
 def test_like_with_empty_similar_falls_back_to_backlog(monkeypatch, tmp_path):
-    # 相似搜不到时 like 不能把槽位删空（否则越点 like 列表越少）。
+    # When similarity returns nothing, like must not delete the slot (otherwise the list shrinks with each like).
     sid, calls = _confirmed("u7", monkeypatch, tmp_path)
     monkeypatch.setattr(orch.cyanite, "find_similar", lambda cid, limit=20: [])
     body = client.post("/feedback", json={"session_id": sid, "track_id": "libtr_0", "verdict": "like"}).json()
     ids = [c["track_id"] for c in body["cards"]]
     assert "libtr_0" not in ids
-    assert len(ids) == orch.config.VISIBLE_N             # 槽位数不变：兜底 backlog 补上了
+    assert len(ids) == orch.config.VISIBLE_N             # Slot count unchanged: fallback backlog filled it.
 
 
 def test_dislike_without_any_like_uses_backlog(monkeypatch, tmp_path):
     sid, calls = _confirmed("u4", monkeypatch, tmp_path)
     body = client.post("/feedback", json={"session_id": sid, "track_id": "libtr_0", "verdict": "dislike"}).json()
-    assert calls["similar"] == 0                         # 没 liked 种子 → 不搜索
+    assert calls["similar"] == 0                         # No liked seed -> no search.
     ids = [c["track_id"] for c in body["cards"]]
-    assert "libtr_0" not in ids                          # 被移除
-    assert "libtr_5" in ids                              # 用 freeText backlog 补位
+    assert "libtr_0" not in ids                          # Removed.
+    assert "libtr_5" in ids                              # Refilled from freeText backlog.
     assert len(ids) == orch.config.VISIBLE_N
 
 
@@ -249,7 +249,7 @@ def test_pool_reused_when_liked_set_unchanged(monkeypatch, tmp_path):
     client.post("/feedback", json={"session_id": sid, "track_id": "libtr_0", "verdict": "like"})
     client.post("/feedback", json={"session_id": sid, "track_id": "libtr_1", "verdict": "dislike"})
     client.post("/feedback", json={"session_id": sid, "track_id": "libtr_2", "verdict": "dislike"})
-    assert calls["similar"] == 1  # liked 集合没变 → 候选池复用，不重复搜
+    assert calls["similar"] == 1  # liked set unchanged -> reuse candidate pool; do not search again.
 
 
 def test_explain_similar_refill_uses_session_liked_seed(monkeypatch, tmp_path):
@@ -284,10 +284,10 @@ def test_explain_similar_refill_uses_session_liked_seed(monkeypatch, tmp_path):
 
 def test_explain_profile_semantic_refill_uses_profile_metadata(monkeypatch, tmp_path):
     sid, _ = _confirmed("profile_explain", monkeypatch, tmp_path)
-    # anti_addiction 的语义回填用的是过往已建立的画像（来自之前已完成的轮），
-    # 而记忆只在一轮结束时落，所以这里预置一份画像模拟老用户。
+    # anti_addiction semantic refill uses the pre-existing profile from earlier finished rounds.
+    # Memory only lands at round end, so preseed a profile here to simulate an old user.
     (tmp_path / "profile_explain.memory.md").write_text(
-        "# memory · profile_explain\n\n## 你的感觉\n你偏向 calm、warm 的感觉。\n",
+        "# memory · profile_explain\n\n## Your Feel\nYou lean toward calm, warm feelings.\n",
         encoding="utf-8",
     )
     client.post(
@@ -339,7 +339,7 @@ def test_explain_profile_semantic_refill_uses_profile_metadata(monkeypatch, tmp_
 def test_explain_uses_historical_similar_intersection(monkeypatch, tmp_path):
     sid, calls = _confirmed("u7", monkeypatch, tmp_path)
     (tmp_path / "u7.evidence.md").write_text(
-        "# evidence · u7\n\n## 反馈记录\n- 「old focus」→ liked hist_1   (2026-06-27T20:00:00)\n",
+        "# evidence · u7\n\n## Feedback log\n- \"old focus\" -> liked hist_1   (2026-06-27T20:00:00)\n",
         encoding="utf-8",
     )
     (tmp_path / "u7.memory.md").write_text(

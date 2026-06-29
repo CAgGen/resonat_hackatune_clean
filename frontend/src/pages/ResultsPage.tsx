@@ -175,8 +175,8 @@ const LikedSongsShelf = ({
   );
 };
 
-// 把 memory.md 渲染成与页面一致的样式（不引 markdown 库）：限高可滚动 + 自动换行，
-// **x** 高亮为强调色，##／---／_脚注_ 各自成样式——不再露出原始 markdown 符号。
+// Render memory.md in the page style without a markdown library: bounded scroll + wrapping,
+// **x** as accent emphasis, and custom styles for ## / --- / _footnotes_ so raw markdown symbols do not leak.
 const renderInline = (text: string) =>
   text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
     /^\*\*[^*]+\*\*$/.test(part) ? (
@@ -234,8 +234,8 @@ const MemoryProfile = ({ md }: { md: string }) => (
   </div>
 );
 
-// 「sounds like you」专属卡片：功能与播放列表里的五张完全一致——hover 预览、点开看
-// 「为什么像你」、喜欢入库、不喜欢翻下一张、可下载。逐张消费，翻完即止。
+// Dedicated "sounds like you" card: same behavior as the five playlist cards: hover preview,
+// open explanation, like into library, dismiss to flip to the next, and download. Consumes one by one until exhausted.
 const SoundsLikeYouCard = ({
   card,
   modalOpen,
@@ -367,7 +367,7 @@ const ResultsPage = () => {
     [likedTracks],
   );
 
-  // 逐张消费：当前永远是候选队列的第一张。
+  // Consume one by one: the current card is always the first candidate in the queue.
   const slyCard = soundsLikeYouCards[0] ?? null;
   const slyTrack = useMemo(
     () => (slyCard ? toTrack(slyCard) : null),
@@ -385,14 +385,15 @@ const ResultsPage = () => {
     try {
       await explainSoundsLikeYouTrack(slyCard.cyanite_id);
     } catch {
-      // 解释失败：modal 仍开着，TrackReasonModal 退到空文本。
+      // Explanation failed: keep modal open and let TrackReasonModal fall back to empty text.
     } finally {
       setSlyLoading(false);
     }
   };
 
-  // 自动预取解释：串行（一个完成再下一个，不齐发）+ 试过就不再自动重试（成败都记），
-  // 否则失败的 track 会被 effect 反复重发，把 OpenAI 打到 429。手动重试走卡片的 onExplain。
+  // Auto-prefetch explanations serially (one finishes before the next; no fan-out) and do not
+  // auto-retry after an attempt (track success/failure). Otherwise failed tracks would be resent
+  // by the effect repeatedly and drive OpenAI into 429. Manual retry goes through card onExplain.
   const attemptedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     let cancelled = false;
@@ -484,7 +485,7 @@ const ResultsPage = () => {
             >
               anti-addiction {antiAddiction ? "on" : "off"}
             </button>
-            {/* 开启新的一轮（回到 taste board）。 */}
+            {/* Start a new round and return to the taste board. */}
             <button
               type="button"
               onClick={handleNewRound}
@@ -520,7 +521,7 @@ const ResultsPage = () => {
           </p>
         )}
 
-        {/* 「完成本轮」— 把这一轮选的歌落成「感觉」记忆。 */}
+        {/* "Finish this round" persists this round's selected songs as feeling memory. */}
         {tracks.length > 0 && (
           <button
             type="button"
@@ -537,7 +538,7 @@ const ResultsPage = () => {
             <h2 className="font-display text-[20px] font-bold uppercase leading-none text-[var(--paper)]">
               your feel, learned
             </h2>
-            {/* 画像在左，「sounds like you」专属卡片贴在右侧（窄屏堆叠）。 */}
+            {/* Profile on the left; dedicated "sounds like you" card on the right (stacked on narrow screens). */}
             <div className="mt-4 flex flex-col gap-6 lg:flex-row lg:items-start">
               <div className="min-w-0 lg:flex-1">
                 <MemoryProfile md={memoryMd} />
@@ -547,7 +548,7 @@ const ResultsPage = () => {
                   <p className="font-display mb-2 text-[12px] font-bold uppercase tracking-[0.06em] text-[var(--yellow)]">
                     sounds like you
                   </p>
-                  {/* 功能与上面五张一致：hover 试听 / 点开看为什么 / 喜欢入库 / 不喜欢翻下一张 / 下载。 */}
+                  {/* Same behavior as the five cards above: hover preview / open explanation / like / dismiss to next / download. */}
                   <SoundsLikeYouCard
                     key={slyCard.cyanite_id}
                     card={slyCard}

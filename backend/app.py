@@ -1,7 +1,8 @@
-"""HTTP 层 · 冻死的数据契约 + 路由（你负责）。
+"""HTTP layer · frozen data contracts + routes.
 
-只做两件事：定义请求/响应 schema（前后端的接缝），把请求转给 orchestrator。
-业务编排全在 orchestrator.py，这里保持薄。
+Only does two things: define request/response schemas (the frontend/backend seam)
+and pass requests to orchestrator. Business orchestration stays in orchestrator.py;
+keep this layer thin.
 
 run: uv run uvicorn app:app --reload
 """
@@ -21,12 +22,12 @@ import orchestrator
 
 app = FastAPI(title="Sounds Like You")
 
-# ponytail: dev 全放行；上线再收敛到具体来源
+# ponytail: allow all origins in dev; tighten to specific origins for production.
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
 
-# ─────────── 请求契约 ───────────
+# ─────────── Request contracts ───────────
 class IntentIn(BaseModel):
     text: str
     user_id: str = "demo"
@@ -58,7 +59,7 @@ class ExplainSoundsLikeYouIn(BaseModel):
     cyanite_id: str
 
 
-# ─────────── 响应裁剪（只把前端要的字段吐出去）───────────
+# ─────────── Response trimming (only return fields the frontend needs) ───────────
 def _intent_view(s: dict) -> dict:
     return {"session_id": s["id"], "whiteboard_posts": s["whiteboard_posts"],
             "query_card": s["query_card"]}
@@ -82,7 +83,7 @@ def _guard(fn, *args):
     except requests.HTTPError as e:
         resp = e.response
         code = resp.status_code if resp is not None else 502
-        hint = "（检查 CYANITE_API_KEY 是否已设置且有效）" if code == 401 else ""
+        hint = " (check that CYANITE_API_KEY is set and valid)" if code == 401 else ""
         raise HTTPException(code, f"Cyanite {code}{hint}")
 
 
@@ -94,7 +95,7 @@ def _require_cyanite_key() -> None:
         )
 
 
-# ─────────── 路由 ───────────
+# ─────────── Routes ───────────
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -124,7 +125,7 @@ def feedback(body: FeedbackIn):
 
 @app.post("/round/finish")
 def round_finish(body: ConfirmIn):
-    """用户点「完成本轮」：把这一轮选的歌落成「感觉」记忆，返回更新后的画像。"""
+    """User clicked "finish this round": persist selected songs as feeling memory and return the updated profile."""
     return _guard(orchestrator.finish_round, body.session_id)
 
 
@@ -148,15 +149,16 @@ def explain_sounds_like_you(body: ExplainSoundsLikeYouIn):
 
 @app.get("/sounds-like-you")
 def sounds_like_you(user_id: str = "demo"):
-    """「听起来像你」：基于长期画像搜一首 AI 眼中的「你本人」专属歌。"""
+    """Find tracks that represent this user through the AI's view of their long-term profile."""
     _require_cyanite_key()
     return _guard(orchestrator.sounds_like_you, user_id)
 
 
-# ─────────── 高质量下载代理 ───────────
-# 走官方 /tracks API 拿 audiodownload + audiodownload_allowed（艺术家可关下载），
-# 再服务器端带 Referer 取文件。浏览器没法直接下：Jamendo 防盗链 403 + 无 CORS 头。
-# 全程重试：Jamendo 偶发连接重置，单次失败不该让用户拿到 500。
+# ─────────── High-quality download proxy ───────────
+# Use the official /tracks API to get audiodownload + audiodownload_allowed
+# (artists can disable downloads), then fetch the file server-side with Referer.
+# Browsers cannot download directly: Jamendo hotlink protection returns 403 and no CORS headers.
+# Retry all the way through: Jamendo sometimes resets connections, and one failure should not give users a 500.
 _DL_HEADERS = {"Referer": "https://www.jamendo.com/", "User-Agent": "Mozilla/5.0"}
 
 
@@ -174,7 +176,7 @@ def _get_with_retry(url: str, *, params=None, tries: int = 3, **kw) -> requests.
 
 @app.get("/download/{track_id}")
 def download(track_id: str):
-    if not track_id.isdigit():  # 只允许 Jamendo 数字 id，挡 SSRF
+    if not track_id.isdigit():  # Only allow numeric Jamendo ids to block SSRF.
         raise HTTPException(400, "track_id must be numeric")
     if not config.JAMENDO_CLIENT_ID:
         raise HTTPException(503, "download disabled: JAMENDO_CLIENT_ID not set")
@@ -189,18 +191,20 @@ def download(track_id: str):
     if not t.get("audiodownload_allowed") or not t.get("audiodownload"):
         raise HTTPException(403, "The artist has disabled download for this track.")
 
-    # 流式透传：浏览器点完立刻开始下、能显示进度，而不是等服务器缓冲完整文件。
-    # 错误状态码靠上面的 /tracks 元数据预检保证；这里只有上游中途断开才会半途失败（罕见，可接受）。
+    # Stream through: the browser starts downloading immediately and can show progress
+    # instead of waiting for the server to buffer the whole file.
+    # Error status codes are covered by the /tracks metadata precheck above; only
+    # midstream upstream disconnects can fail halfway here (rare, acceptable).
     r = _get_with_retry(t["audiodownload"], stream=True)
     name = quote(f'{t.get("name", "track")} - {t.get("artist_name", "Jamendo")}.mp3')
     headers = {"content-disposition": f"attachment; filename*=UTF-8''{name}"}
-    if cl := r.headers.get("content-length"):  # 透传长度，浏览器才有进度条
+    if cl := r.headers.get("content-length"):  # Pass length through so the browser shows progress.
         headers["content-length"] = cl
     return StreamingResponse(r.iter_content(64 * 1024), media_type="audio/mpeg", headers=headers)
 
 
-# ─────────── Cyanite 透传（调试用，直接在 /docs 试）───────────
-# ponytail: 给每条结果拼上 title/artist，Swagger 里看得懂；底层就是 cyanite.py
+# ─────────── Cyanite passthrough (debug; try directly in /docs) ───────────
+# ponytail: attach title/artist to each result for readable Swagger output; the underlying layer is cyanite.py.
 def _enrich(rows: list[dict]) -> list[dict]:
     return [{**r, **{k: cyanite.display(r["cyanite_id"], r.get("track_id", "")).get(k)
                      for k in ("track_id", "title", "artist")}}
@@ -208,72 +212,72 @@ def _enrich(rows: list[dict]) -> list[dict]:
 
 
 def _cy(fn, *args):
-    """把 Cyanite 的上游 HTTP 错误翻成干净的状态码，而不是 500 + 堆栈。"""
+    """Translate upstream Cyanite HTTP errors into clean status codes instead of 500 + stack trace."""
     try:
         return fn(*args)
     except requests.HTTPError as e:
         resp = e.response
         code = resp.status_code if resp is not None else 502
-        raise HTTPException(code, f"Cyanite {code}（检查 id/参数，别带引号空格）")
+        raise HTTPException(code, f"Cyanite {code} (check id/params; do not include quotes or spaces)")
 
 
 @app.get("/cyanite/search", tags=["cyanite-debug"],
-         summary="#2 文本搜索 · 自然语言 → 候选曲（原始响应）")
+         summary="#2 Text search · natural language -> candidate tracks (raw response)")
 def cyanite_search(query: str, limit: int = 10):
-    """官方端点 #2「Find Library Tracks based on a text prompt」。
+    """Official endpoint #2, "Find Library Tracks based on a text prompt".
 
-    直接透传 Cyanite 原始 JSON，不经 CSV / normalize。数据来自真实数据库。
+    Passes Cyanite raw JSON through directly, without CSV / normalize. Data comes from the real database.
 
-    - **query**：自然语言描述，如 `lonely midnight train ride, restrained`
-    - **limit**：返回条数
+    - **query**: natural-language description, e.g. `lonely midnight train ride, restrained`
+    - **limit**: number of results
     """
     return _cy(cyanite.search_raw, query, limit)
 
 
 @app.get("/cyanite/similar-single/{cyanite_id}", tags=["cyanite-debug"],
-         summary="#3 单种子相似 · 一首曲 → 声学相似曲")
+         summary="#3 Single-seed similarity · one track -> acoustically similar tracks")
 def cyanite_similar_single(cyanite_id: str, limit: int = 10):
-    """官方端点 #3「Find Similar Library Tracks」（单种子）。
+    """Official endpoint #3, "Find Similar Library Tracks" (single seed).
 
-    给一首曲（`cyanite_id`，形如 `libtr_xxx`），返回声学上最相似的曲目，按相似度降序。
-    这是 like 后做候选扩展用的调用。
+    Given one track (`cyanite_id`, shaped like `libtr_xxx`), return the most acoustically similar tracks,
+    sorted by similarity descending. Used to expand candidates after a like.
 
-    - **cyanite_id**：种子曲的 Cyanite id（别带引号/空格，会自动清理）
-    - **limit**：返回条数
+    - **cyanite_id**: seed track Cyanite id (quotes/spaces are stripped automatically)
+    - **limit**: number of results
 
-    返回每条带 `cyanite_id` / `score`（相似度）/ `title` / `artist`。
+    Returns each row with `cyanite_id` / `score` (similarity) / `title` / `artist`.
     """
     return _enrich(_cy(cyanite.find_similar, cyanite_id.strip().strip('"'), limit))
 
 
 @app.get("/cyanite/tags/{cyanite_id}", tags=["cyanite-debug"],
-         summary="#1 取标签 · 一首曲 → AI 模型标签")
+         summary="#1 Get tags · one track -> AI model tags")
 def cyanite_tags(cyanite_id: str, models: str = "MainGenreV2,MoodSimpleV2,InstrumentsV2,BpmV2"):
-    """官方端点 #1「Get inferred AI Models for a Library Track」（tagging）。
+    """Official endpoint #1, "Get inferred AI Models for a Library Track" (tagging).
 
-    返回某曲的 Cyanite 模型推断结果（流派 / 情绪 / 乐器 / BPM 等），
-    用来支撑前端的「Why this track?」解释。
+    Returns Cyanite model inference for a track (genre / mood / instruments / BPM, etc.),
+    used to support the frontend "Why this track?" explanation.
 
-    - **cyanite_id**：曲目的 Cyanite id（别带引号/空格，会自动清理）
-    - **models**：要取哪些模型，逗号分隔。默认 `MainGenreV2,MoodSimpleV2,InstrumentsV2,BpmV2`
+    - **cyanite_id**: track Cyanite id (quotes/spaces are stripped automatically)
+    - **models**: comma-separated model list. Default `MainGenreV2,MoodSimpleV2,InstrumentsV2,BpmV2`
 
-    返回 Cyanite 原始 `{items:[...]}`，每项含该模型的 tags / scores。
+    Returns Cyanite raw `{items:[...]}`; each item contains that model's tags / scores.
     """
     ms = [m.strip() for m in models.split(",") if m.strip()]
     return _cy(cyanite.model_tags, cyanite_id.strip().strip('"'), ms)
 
 
 @app.get("/cyanite/resolve-id/{track_id}", tags=["cyanite-debug"],
-         summary="工具 · 数据包 track_id → cyanite_id + 展示信息")
+         summary="Tool · data-pack track_id -> cyanite_id + display info")
 def cyanite_resolve_id(track_id: str):
-    """把数据包里的 Jamendo `track_id`（`data/tracks.csv` 里那列）换成 Cyanite id，
-    顺带返回 `title` / `artist`。不碰网络，纯本地映射。
+    """Convert a Jamendo `track_id` from the data pack (`data/tracks.csv`) to a Cyanite id,
+    and return `title` / `artist` alongside it. No network; pure local mapping.
 
-    - **track_id**：数据包的 Jamendo 曲目 id
+    - **track_id**: Jamendo track id from the data pack
 
-    不在数据包内的 id 返回 404。
+    Ids outside the data pack return 404.
     """
     try:
         return cyanite.display(cyanite.to_cyanite(track_id.strip()))
     except KeyError:
-        raise HTTPException(404, f"track_id {track_id!r} 不在数据包里")
+        raise HTTPException(404, f"track_id {track_id!r} is not in the data pack")

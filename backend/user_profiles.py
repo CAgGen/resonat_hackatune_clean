@@ -1,6 +1,6 @@
-"""基础设施 · 主办方 provided user liked tracks。
+"""Infrastructure · sponsor-provided user liked tracks.
 
-data/users.csv 使用 Jamendo track_id；业务层需要 Cyanite id 调 API。
+data/users.csv uses Jamendo track_ids; business logic needs Cyanite ids for API calls.
 """
 from __future__ import annotations
 

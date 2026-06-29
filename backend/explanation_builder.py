@@ -1,7 +1,8 @@
-"""接缝 · 推荐解释生成。
+"""Seam · recommendation explanation generation.
 
-把用户画像、当前 Query Card、liked/recommended 曲目的 Cyanite tags 和排序元数据
-合成英文 Why this track 文本。业务层可以直接 import 本模块；这里不接 FastAPI。
+Combines the user profile, current Query Card, Cyanite tags for liked/recommended tracks,
+and ranking metadata into English "Why this track" text. Business code can import this
+module directly; FastAPI does not connect here.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ import requests
 
 import config
 
-# OpenAI 429 限流：退避重试，不降级。用尽仍抛真错。
+# OpenAI 429 rate limits: back off and retry, with no downgrade. Raise the real error after exhaustion.
 _RETRY_ON = {429, 500, 502, 503, 504}
 _MAX_RETRIES = 4
 
@@ -23,10 +24,10 @@ def _post_with_retry(*args, **kwargs) -> requests.Response:
         resp = requests.post(*args, **kwargs)
         if getattr(resp, "status_code", None) not in _RETRY_ON or attempt == _MAX_RETRIES - 1:
             return resp
-        # 优先听服务端的 Retry-After，否则指数退避 1/2/4 秒
+        # Prefer server Retry-After; otherwise use exponential backoff: 1/2/4 seconds.
         wait = float(resp.headers.get("Retry-After") or 2 ** attempt)
         time.sleep(wait)
-    return resp  # ponytail: 循环必返回，这行只为类型完整
+    return resp  # ponytail: the loop always returns; this line is only for type completeness.
 
 
 SYSTEM_PROMPT = """You explain music recommendations in English.
@@ -76,10 +77,11 @@ DEFAULT_EXAMPLE_SIMILARITY_THRESHOLD = 0.0  # ponytail: threshold disabled; any 
 
 
 def mood_timeline(recommended_tags: dict, max_points: int = 6) -> list[dict]:
-    """从已抓取的 MoodSimpleV2 segments 里提取「主导情绪随时间」时间轴，给前端做角标。
+    """Extract a "dominant mood over time" timeline from fetched MoodSimpleV2 segments for frontend markers.
 
-    每个时间点取 argmax 情绪，折叠连续相同段 → 每次情绪切换落一个脚注 {t, label}。
-    时间戳直接来自 Cyanite，零编造。拿不到 segments 就返回空（前端不渲染角标）。"""
+    At each timestamp, take the argmax mood and collapse consecutive identical spans, leaving one
+    marker {t, label} for each mood switch. Timestamps come directly from Cyanite with no invention.
+    Return empty when segments are unavailable (frontend renders no markers)."""
     item = next((i for i in recommended_tags.get("items", [])
                  if str(i.get("version", "")).startswith("MoodSimpleV2")), None)
     seg = (item or {}).get("segments") or {}
@@ -101,7 +103,7 @@ def extract_liked_track_ids_from_evidence(evidence_md: str) -> list[str]:
     seen = set()
     liked_ids = []
     for line in reversed(evidence_md.splitlines()):
-        match = re.search(r"→\s*liked\s+(.+?)(?:\s+\(|$)", line)
+        match = re.search(r"(?:→|->)\s*liked\s+(.+?)(?:\s+\(|$)", line)
         if not match:
             continue
         for track_id in reversed([part.strip() for part in match.group(1).split(",")]):
@@ -170,8 +172,9 @@ def build_explanation(profile_md: str,
                       explanation_example: dict | None = None,
                       recommended_track: dict | None = None) -> dict:
     """Return an English explanation grounded in provided Cyanite/user evidence."""
-    # 惊喜卡：固定写死这段「special treat」文案，不走 LLM。用户必须每次都看到我们的良苦用心，
-    # 不能让模型改写或 429 把它吞掉。tag A 从画像里抽，让对比落到 ta 自己的口味上。
+    # Surprise card: hard-code this "special treat" copy instead of using the LLM.
+    # Users must always see the intended positioning; do not let model rewrites or 429s swallow it.
+    # Tag A comes from the profile so the contrast lands against their own taste.
     if recommendation_meta.get("source") == "surprise":
         return _surprise_explanation(profile_md, query_card, recommendation_meta)
     if not config.OPENAI_API_KEY:
@@ -188,7 +191,7 @@ def build_explanation(profile_md: str,
                 recommended_track,
             )
         except Exception:
-            # OpenAI 不可用（429 退避用尽 / 超时 / 任何报错）→ 降级到确定性解释，绝不 500
+            # OpenAI unavailable (429 retries exhausted / timeout / any error) -> deterministic fallback, never 500.
             result = _fallback_explanation(query_card, recommendation_meta, explanation_example)
     return _ensure_seed_attribution(result, recommendation_meta, explanation_example)
 
@@ -264,8 +267,8 @@ def _build_user_prompt(profile_md: str,
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
 
 
-# 从画像里抽「贯穿的核心感觉」那行的头几个标签当 tag A；抽不到就退到频次光谱行；
-# 再抽不到就空（文案退化为「your usual taste」泛指）。
+# Extract the first tags from the "core feel" profile line as tag A; fall back to the spectrum line;
+# if that also fails, leave it empty (copy falls back to generic "your usual taste").
 _CORE_TASTE_RE = re.compile(r"Core feel[^:]*:\s*(.+)", re.IGNORECASE)
 _SPECTRUM_RE = re.compile(r"Feel spectrum[^:]*:\s*(.+)", re.IGNORECASE)
 _TAG_SPLIT_RE = re.compile(r"[,，]\s*")
@@ -287,7 +290,7 @@ def _dominant_taste_tags(profile_md: str, limit: int = 2) -> list[str]:
 
 
 def _surprise_explanation(profile_md: str, query_card: dict, recommendation_meta: dict) -> dict:
-    """惊喜卡的固定文案：special treat + 点名 tag A + 在 tag A 上做突破。绝不依赖 LLM。"""
+    """Fixed surprise-card copy: special treat + name tag A + break past tag A. Never depends on the LLM."""
     query = query_card.get("free_text_query") or query_card.get("interpretation_plain") or "your current search"
     tags = _dominant_taste_tags(profile_md)
     if tags:
@@ -336,8 +339,9 @@ def _fallback_explanation(query_card: dict,
             example_text = f" It is close enough to a track already in your liked history ({label}) to use that as a concrete taste example."
         else:
             example_text = f" It is close enough to a track you liked earlier in this session ({label}) to use that as a concrete taste example."
-    # 只有真从某首 liked 种子搜出来的（带 source_liked_track）才能说「来自你喜欢的歌附近」；
-    # prompt 召回的 free_text 卡（首批 / backlog 兜底）没有种子，只能说它直接匹配检索 brief，不能瞎认相似。
+    # Only tracks truly found from a liked seed (with source_liked_track) can say they came from near liked songs.
+    # free_text cards recalled from the prompt (first batch / backlog fallback) have no seed, so they can only say
+    # they directly match the search brief, not claim similarity.
     if recommendation_meta.get("source_liked_track"):
         selection = f"It was selected from music near your liked tracks using Cyanite acoustic similarity{score_text}."
         ranking_basis = recommendation_meta.get("ranking_basis", "similar_score_fallback")
@@ -353,11 +357,11 @@ def _fallback_explanation(query_card: dict,
 def _ensure_seed_attribution(result: dict,
                              recommendation_meta: dict,
                              explanation_example: dict | None) -> dict:
-    """similarById 卡的硬约束：why_text 必须点名种子歌的「歌名 by 作者」。
+    """Hard constraint for similarById cards: why_text must name the seed song as "title by artist".
 
-    LLM 偶尔（fallback 文案也可能）漏掉种子曲名/作者，只泛泛说「a track you liked」。
-    这里做确定性兜底：source=='similar' 且拿得到种子标题时，若 why_text 里没出现种子标题，
-    就在最前面补一句明确的归因，保证用户永远看到「因为你喜欢 X by Y，我们才搜出这首」。"""
+    The LLM may occasionally omit the seed title/artist (fallback copy can too) and say only "a track you liked".
+    This deterministic fallback prepends explicit attribution when source=='similar', a seed title is available,
+    and why_text does not already mention it."""
     if recommendation_meta.get("source") != "similar" or not explanation_example:
         return result
     title = str(explanation_example.get("title", "")).strip()
@@ -441,7 +445,7 @@ def _extract_output_text(payload: dict) -> str:
     raise ValueError("OpenAI response did not contain output text")
 
 
-# 兜底：前端纯文本渲染，剥掉模型偶尔漏带的 markdown 符号。
+# Fallback: frontend renders plain text, so strip occasional markdown symbols leaked by the model.
 _MD = re.compile(r"\*\*|__|`|^\s*[-*•#]+\s+", re.M)
 
 

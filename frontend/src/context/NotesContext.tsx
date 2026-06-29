@@ -159,14 +159,15 @@ export const NotesProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 「完成本轮」：把这一轮选的歌落成「感觉」记忆，拿回更新后的画像。
+  // "Finish this round": persist selected songs as feeling memory and fetch the updated profile.
   const completeRound = async (): Promise<string | null> => {
     if (!sessionId) return null;
     setIsFinishingRound(true);
     try {
       const result = await finishRound(sessionId);
       setMemoryMd(result.memory_md);
-      // sounds like you：用刚写好的画像搜一小串「AI 眼中的你本人」候选。失败不影响完成本轮。
+      // sounds like you: search a short "you through the AI's eyes" candidate list from the just-written profile.
+      // Failure does not affect round completion.
       soundsLikeYou()
         .then((res) => setSoundsLikeYouCards(res.cards))
         .catch(() => setSoundsLikeYouCards([]));
@@ -176,7 +177,7 @@ export const NotesProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 「new round」：把上一轮在提示词页面的所有残留全部清空，从零开始。
+  // "new round": clear all leftovers from the prompt page and start from zero.
   const resetRound = () => {
     clearIdleTimer();
     setNotes([]);
@@ -223,8 +224,9 @@ export const NotesProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 「听起来像你」逐张翻牌：喜欢就进 liked songs，翻到下一张；不喜欢直接翻下一张。
-  // 翻完候选即止（不再补歌）。它不属于本轮 session，所以不打 /feedback。
+  // "Sounds like you" flips through candidates one by one: like adds to liked songs and advances;
+  // dislike just advances. Stop when candidates are exhausted, with no refill.
+  // It is outside the current round session, so it does not call /feedback.
   const advanceSoundsLikeYou = (cyaniteId: string) =>
     setSoundsLikeYouCards((prev) =>
       prev.filter((card) => card.cyanite_id !== cyaniteId),
