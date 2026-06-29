@@ -105,10 +105,12 @@ def _replace_visible(s: dict, cyanite_id: str, fill: dict | None) -> None:
         s["visible_cards"][idx] = fill
 
 
-def _record_like(s: dict, cyanite_id: str) -> None:
+def _record_like(s: dict, cyanite_id: str, jamendo_id: str = "") -> None:
     # Only record liked seeds; memory (evidence + profile) is persisted together at round end, see finish_round.
     if cyanite_id not in s["liked_tracks"]:
         s["liked_tracks"].append(cyanite_id)
+    if jamendo_id:                              # Keep the Jamendo id so explain can name this seed (it has no data-pack entry).
+        s["liked_jamendo"][cyanite_id] = jamendo_id
 
 
 def _card_from_candidate(candidate: dict, source: str) -> dict | None:
@@ -219,6 +221,7 @@ def start_session(user_id: str, text: str) -> dict:
         "visible_cards": [],      # Current recommendation list.
         "free_text_backlog": [],  # Unshown freeText recalls (refill source when liked is empty).
         "liked_tracks": [],       # User-liked tracks = similarById seeds on dislike.
+        "liked_jamendo": {},      # cyanite_id -> jamendo track_id, so explain can fetch the seed's real title/artist.
         "pool_sig": None,         # liked-set signature used for the previous pool build (re-search only when changed).
         "candidate_pool": [],     # Similar candidates searched from liked seeds on dislike.
         "disliked_tracks": {},    # Explicitly disliked tracks.
@@ -285,7 +288,7 @@ def feedback(session_id: str, track_id: str, verdict: str, mode: str = "normal")
     card = _visible_card(s, track_id)
     cid = card["cyanite_id"]
     if verdict == "like":
-        _record_like(s, cid)
+        _record_like(s, cid, card.get("track_id", ""))
         if mode != "anti_addiction":
             _set_single_seed_pool(s, cid)               # Single seed: search similarity only from the just-clicked track.
             fill = _best_similar_refill(s)
@@ -380,7 +383,8 @@ def explain(session_id: str, track_id: str) -> dict:
         historical_candidates=historical_candidates,
     )
     if explanation_example:
-        display = cyanite.display(explanation_example["track_id"])
+        seed_cid = explanation_example["track_id"]
+        display = cyanite.display(seed_cid, s.get("liked_jamendo", {}).get(seed_cid, ""))
         # If the seed track (the previous liked song) is outside the data pack, title/artist are empty and
         # explanations degrade to "(seed song)". Use track_id to fill it through Jamendo like other tracks,
         # then pass the real title/artist into the explanation.
