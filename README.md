@@ -20,9 +20,8 @@ grounded in Cyanite audio intelligence and refined through lightweight taste mem
 
 ## ✨ What is this?
 
-Cochlea, also described in the product as **Sounds Like You**, is a hackathon music
-recommendation app built around one principle: the user should understand why a
-song was recommended.
+**Sounds Like You** is a hackathon music recommendation app built around one
+principle: the user should understand why a song was recommended.
 
 The app takes a vague prompt such as "lonely midnight train ride", compiles it into
 a visible Query Card, asks the user to confirm or refine that interpretation, then
@@ -35,11 +34,9 @@ This repository currently contains:
 |---|---|
 | [`frontend/`](frontend/) | React + TypeScript + Vite experience for prompt input, results, feedback, explanations, and "sounds like you" cards |
 | [`backend/`](backend/) | FastAPI service that owns sessions, intent compilation, Cyanite calls, explanations, and markdown memory |
-| [`data/`](data/) | Hackathon data pack: user taste profiles, Jamendo track metadata, and Cyanite/Jamendo mapping |
+| [`data/`](data/) | Hackathon data pack: `tracks.csv` (Jamendo track metadata) and `users.csv` (per-user liked track ids) |
 | [`guides/`](guides/) | Cyanite API PDFs, model-output notes, and tag vocabulary references |
 | [`notebooks/`](notebooks/) | Starter notebook for Cyanite model outputs and search endpoints |
-| [`PRD-night.md`](PRD-night.md) | One-night sprint PRD that defines the confirmation gate, feedback loop, and no-database memory model |
-| [`GETTING_STARTED.md`](GETTING_STARTED.md) | Chinese setup guide used by the team during development |
 
 ---
 
@@ -48,34 +45,40 @@ This repository currently contains:
 ```mermaid
 flowchart TD
     A["User prompt<br/>mood, scene, seed, or reference"] --> B["Whiteboard posts<br/>initial prompt + follow-ups"]
-    B --> C["Intent compiler<br/>deterministic fallback or OpenAI-assisted"]
-    C --> D["Query Card<br/>plain interpretation + free-text query + soft targets"]
+    B --> C["Intent compiler<br/>deterministic fallback or OpenAI-assisted<br/>+ feel injection from memory"]
+    C --> D["Query Card<br/>plain interpretation + free-text query + metadata filter"]
     D --> E{"User confirms<br/>the interpretation?"}
     E -->|"No"| F["Add follow-up note"]
     F --> B
-    E -->|"Yes"| G["Cyanite free-text search"]
-    G --> H["Visible recommendation cards"]
+    E -->|"Yes"| G["Cyanite free-text search<br/>visible cards + backlog"]
+    G --> S["Inject surprise slot<br/>fits the round, offsets the profile<br/>first batch only"]
+    S --> H["Visible recommendation cards"]
     H --> I{"User feedback"}
-    I -->|"Like"| J["Record liked seed<br/>optionally refill with similar track"]
-    I -->|"Dislike"| K["Remove card<br/>refill from liked seeds or backlog"]
-    J --> L["Round finish"]
+    I -->|"Like (normal)"| J["Record liked seed<br/>swipe away + refill by single-seed similarity"]
+    I -->|"Like (anti-addiction)"| JA["Record liked seed only<br/>list stays unchanged"]
+    I -->|"Dislike (normal)"| K["Remove card<br/>refill from liked-seed similarity / backlog"]
+    I -->|"Dislike (anti-addiction)"| KA["Remove card<br/>refill by long-term profile semantics"]
+    J --> H
+    JA --> H
     K --> H
+    KA --> H
+    H --> L["Round finish"]
     L --> M["Append evidence.md<br/>liked track + final prompt + feel tags"]
     M --> N["Rewrite memory.md<br/>natural-language feel profile"]
     N --> C
-    H --> O["Why this track?<br/>Cyanite tags + query card + ranking path"]
+    H --> O["Why this track?<br/>Cyanite tags + query card + memory + similarity example"]
 ```
 
 The recommendation loop is intentionally small:
 
 | Step | What happens |
 |---|---|
-| **Intent** | `/intent` stores the first prompt as a whiteboard post and compiles a Query Card without searching yet |
+| **Intent** | `/intent` stores the first prompt as a whiteboard post and compiles a Query Card (with feel injection from memory) without searching yet |
 | **Refine** | `/intent/follow-up` adds another post and recompiles the Query Card |
-| **Confirm** | `/intent/confirm` runs Cyanite free-text search only after the user accepts the interpretation |
-| **Feedback** | `/feedback` records likes as seeds, removes disliked cards, and refills empty slots |
-| **Memory** | `/round/finish` appends evidence and rewrites a feel-only profile in markdown |
-| **Explain** | `/explain` builds an English explanation from Cyanite tags, the Query Card, user memory, and ranking metadata |
+| **Confirm** | `/intent/confirm` runs Cyanite free-text search only after the user accepts the interpretation, then injects one surprise card into the first batch |
+| **Feedback** | `/feedback` takes a `mode`: normal like swipes-and-refills by single-seed similarity, anti-addiction like only records; dislike removes the card and refills by similarity (normal) or profile semantics (anti-addiction) |
+| **Memory** | `/round/finish` appends evidence and rewrites a feel-only profile in markdown (idempotent; skipped with no likes) |
+| **Explain** | `/explain` builds an English explanation from Cyanite tags, the Query Card, user memory, and an optional historical similarity example |
 
 ---
 
@@ -84,23 +87,27 @@ The recommendation loop is intentionally small:
 ```mermaid
 flowchart LR
     subgraph Browser["Browser"]
-        UI["React app<br/>StartPage + ResultsPage"]
+        ROUTER["App.tsx<br/>router: StartPage / ResultsPage"]
+        COMP["components/<br/>cards, controls, modal, effects"]
+        CTX["NotesContext + useAudioPlayer<br/>whiteboard notes + audio playback"]
         API["src/api.ts<br/>typed fetch wrapper"]
     end
 
     subgraph Backend["FastAPI backend"]
         APP["app.py<br/>HTTP schemas + routes"]
         ORCH["orchestrator.py<br/>session state machine"]
-        INTENT["intent_agent.py<br/>Query Card + search args"]
+        INTENT["intent_agent.py<br/>query / surprise / sounds-like-you args"]
         CY["cyanite.py<br/>Cyanite REST wrapper"]
         EXPLAIN["explanation_builder.py<br/>Why this track"]
         MEM["memory.py<br/>evidence + feel profile"]
         RERANK["rerank.py<br/>refill ranking"]
+        PROF["user_profiles.py<br/>sponsor liked-track ids"]
     end
 
     subgraph LocalData["Local files"]
         CSV["data/tracks.csv<br/>display metadata"]
-        MAP["data/jamendo_mapper.json<br/>catalog id mapping"]
+        USERS["data/users.csv<br/>per-user liked track ids"]
+        PROMPTS["backend/prompts/*.md<br/>LLM prompt templates"]
         MD["backend/memory/*.md<br/>runtime user memory"]
     end
 
@@ -110,19 +117,26 @@ flowchart LR
         OpenAI["OpenAI Responses API<br/>optional"]
     end
 
-    UI --> API
+    ROUTER --> COMP
+    ROUTER --> CTX
+    COMP --> API
     API -->|"Vite proxy /api"| APP
     APP --> ORCH
+    APP -->|"debug + download routes"| CY
     ORCH --> INTENT
     ORCH --> CY
     ORCH --> EXPLAIN
     ORCH --> MEM
     ORCH --> RERANK
+    ORCH --> PROF
     CY --> CSV
-    CY --> MAP
+    PROF --> USERS
     CY --> Cyanite
     CY --> Jamendo
+    INTENT --> PROMPTS
+    INTENT --> OpenAI
     EXPLAIN --> OpenAI
+    MEM --> OpenAI
     MEM --> MD
 ```
 
@@ -143,17 +157,18 @@ stored as two markdown files per user under `backend/memory/`; there is no datab
 │   ├── explanation_builder.py # grounded English recommendation explanations
 │   ├── memory.py              # markdown evidence/profile storage
 │   ├── rerank.py              # refill candidate ranking helpers
+│   ├── user_profiles.py       # sponsor user liked-track ids from data/users.csv
+│   ├── prompts/               # LLM prompt templates (intent, sounds-like-you, surprise)
 │   └── test_*.py              # focused backend tests
 ├── frontend/
 │   ├── src/App.tsx            # route shell
 │   ├── src/pages/             # start and results flows
 │   ├── src/components/        # cards, controls, modal, visual effects
 │   └── src/api.ts             # typed API client for the FastAPI backend
-├── data/                      # hackathon data pack and id mapping
+├── data/                      # hackathon data pack (tracks.csv, users.csv)
 ├── guides/                    # Cyanite endpoint guides and vocabularies
 ├── notebooks/                 # Cyanite starter notebook
 ├── start.sh                   # one-shot full-stack dev startup
-├── dev.sh                     # smaller backend/frontend startup helper
 └── .env.sample                # local API-key template
 ```
 
@@ -165,7 +180,7 @@ stored as two markdown files per user under `backend/memory/`; there is no datab
 |---|---|---|
 | **Backend** | Python 3.13 + [`uv`](https://docs.astral.sh/uv/) | FastAPI, Uvicorn, Requests, HTTPX, python-dotenv, pytest |
 | **Frontend** | Node.js 20+ + npm | React 19, React DOM, React Router, Vite, TypeScript, Tailwind CSS, motion, OGL, oxlint |
-| **Data** | Local CSV / JSON | `data/tracks.csv`, `data/users.csv`, `data/jamendo_mapper.json` |
+| **Data** | Local CSV | `data/tracks.csv` (track metadata), `data/users.csv` (per-user liked track ids) |
 | **External APIs** | HTTP | Cyanite REST, optional Jamendo metadata/downloads, optional OpenAI Responses API |
 | **Memory** | Markdown files | `backend/memory/<user_id>.evidence.md` and `backend/memory/<user_id>.memory.md` generated at runtime |
 
@@ -220,14 +235,6 @@ It syncs backend dependencies, installs frontend dependencies, starts FastAPI on
 | http://localhost:5173 | Frontend app |
 | http://localhost:8000 | Backend API |
 | http://localhost:8000/docs | FastAPI Swagger UI |
-
-Smaller commands are available through [`dev.sh`](dev.sh):
-
-```bash
-./dev.sh          # sync backend dependencies only
-./dev.sh run      # run FastAPI on :8000
-./dev.sh front    # run Vite on :5173
-```
 
 Manual equivalents:
 
@@ -352,8 +359,7 @@ git status --short
 
 ## Terms and licenses
 
-- Challenge brief: [`CHALLENGE.md`](CHALLENGE.md)
-- Challenge agreement: [`CHALLENGE_AGREEMENT.md`](CHALLENGE_AGREEMENT.md)
+- Agent/runtime notes: [`AGENTS.md`](AGENTS.md)
 - Code and docs: MIT, see [`LICENSE`](LICENSE)
 - Data pack terms: [`DATA_LICENSE.md`](DATA_LICENSE.md)
 
