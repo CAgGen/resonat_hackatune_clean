@@ -1,4 +1,4 @@
-"""接缝 · 意图分析 Agent（取代 intent_compiler）。
+"""接缝 · 意图分析 Agent。
 
 两段式，两次独立 LLM 调用，prompt 在 prompts/intent_agent.md，占位符用 str.replace 注入：
   ① interpret -> compile_query_card()：确认门生成给用户看的精简解读（~200字）。
@@ -16,7 +16,6 @@ compile_query_card 返回:
       "interpretation_plain": str,          # ① 解读
       "free_text_query": "",                # 留空，confirm 调 search_args 后回填
       "metadata_filter": None,              # 同上
-      "soft_targets": [], "negatives": [],  # 旧字段，保留兼容 rerank/explanation
     }
 search_args 返回:
     {"query": str, "metadata_filter": dict | None}
@@ -71,8 +70,6 @@ def compile_query_card(posts: list[dict], profile_md: str = "") -> dict:
         "interpretation_plain": interpret(posts, profile_md),
         "free_text_query": "",
         "metadata_filter": None,
-        "soft_targets": [],
-        "negatives": [],
     }
 
 

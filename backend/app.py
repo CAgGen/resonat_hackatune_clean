@@ -19,7 +19,7 @@ import config
 import cyanite
 import orchestrator
 
-app = FastAPI(title="Cochlea")
+app = FastAPI(title="Sounds Like You")
 
 # ponytail: dev 全放行；上线再收敛到具体来源
 app.add_middleware(CORSMiddleware, allow_origins=["*"],

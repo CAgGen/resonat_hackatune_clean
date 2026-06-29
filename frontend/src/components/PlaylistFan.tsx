@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import MusicCard from "./MusicCard";
 import TrackReasonModal from "./TrackReasonModal";
 import { useAudioPlayer } from "../hooks/useAudioPlayer";
-import { SAMPLE_TRACKS, downloadUrl, type SampleTrack } from "../sampleTracks";
+import { downloadUrl, type SampleTrack } from "../sampleTracks";
 import type { ExplanationResponse, MoodSegment } from "../api";
 
 const SLOTS = [
@@ -39,7 +39,7 @@ interface PlaylistFanProps {
 }
 
 const PlaylistFan = ({
-  tracks = SAMPLE_TRACKS.slice(0, SLOTS.length),
+  tracks = [],
   antiAddiction = false,
   likedIds,
   onLike,

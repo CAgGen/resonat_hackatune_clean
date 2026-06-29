@@ -39,8 +39,3 @@ EXPLAIN_TAG_MODELS = [
     "VocalsV2",
     "AutoDescriptionV2",
 ]
-
-# --- 薄重排权重 · 护栏: W_PRIMARY > W_SOFT + W_NEG（音频/语义分必须主导）---
-W_PRIMARY = 1.0
-W_SOFT = 0.3
-W_NEG = 0.3

@@ -11,6 +11,7 @@ REST 形态取自 notebooks/cyanite_model_outputs.ipynb 与 guides/ 里的官方
 """
 from __future__ import annotations
 import csv
+import hashlib
 import json
 import pathlib
 
@@ -22,9 +23,10 @@ import config
 
 _DATA_DIR = pathlib.Path(__file__).resolve().parents[1] / "data"
 _DATA = _DATA_DIR / "tracks.csv"
-_MAPPER = _DATA_DIR / "jamendo_mapper.json"
 
 # 数据包 CSV：~1 万首"口味种子"曲的真实展示信息（含 artist），启动时载入一次。
+# 只是缓存/种子：search/similar 返回的非种子曲不在此，title/artist 走 Jamendo，
+# track_id 直接取自 Cyanite 响应里的 {jamendoId}.mp3（见 normalize / display）。
 _JAM_TO_CYAN: dict[str, str] = {}
 _DISPLAY: dict[str, dict] = {}
 with _DATA.open() as f:
@@ -37,14 +39,6 @@ with _DATA.open() as f:
             "artist": row.get("artist_name", ""),
         }
 _CYAN_TO_JAM = {c: j for j, c in _JAM_TO_CYAN.items()}
-
-# 全库映射 cyanite_id -> jamendo track_id（~357k）。search/similar 会返回整个 catalog 的曲，
-# 不只数据包那 1 万首；没有这个映射，非种子曲就拿不到 track_id（→ 无法播放、卡片空白）。
-# ponytail: 30MB JSON 全量载入内存（~30MB 常驻）。曲库不再变，省事最划算；真嫌占内存再换 sqlite/lazy。
-_CYAN_TO_TRACK: dict[str, str] = {}
-with _MAPPER.open() as f:
-    for cid, info in json.load(f).items():
-        _CYAN_TO_TRACK[cid] = str(info.get("jamendo_title", "")).split(".mp3")[0]
 
 # 共享限流退避：Cyanite 有共享 rate limit，explain 扇出会成倍打它。429/5xx 自动退避重试，
 # 听服务端 Retry-After；用尽才抛。覆盖全部 4 个端点。
@@ -67,17 +61,16 @@ def to_cyanite(track_id: str) -> str:
 
 
 def to_jamendo(cyanite_id: str) -> str:
-    # 数据包内的精确映射优先，再退到全库 mapper（非种子曲走这条）
-    return _CYAN_TO_JAM.get(cyanite_id) or _CYAN_TO_TRACK[cyanite_id]
+    """数据包种子曲：cyanite_id → jamendo track_id。非种子曲的 track_id 直接取自 Cyanite 响应。"""
+    return _CYAN_TO_JAM[cyanite_id]
 
 
 def display(cyanite_id: str, track_id: str = "") -> dict:
     if cyanite_id in _DISPLAY:          # 数据包种子曲：有真实 title + artist
         return _DISPLAY[cyanite_id]
-    # 其余 catalog 曲：track_id 优先用调用方从 API 响应直接解析出来的（mapper 可能缺新上传曲），
-    # 再退到全库 mapper。title/artist Cyanite 库里根本没有（标题就是 {jamendoId}.mp3），留空。
-    return {"track_id": track_id or _CYAN_TO_TRACK.get(cyanite_id, ""), "cyanite_id": cyanite_id,
-            "title": "", "artist": ""}
+    # 其余 catalog 曲：track_id 由调用方从 Cyanite 响应直接给（{jamendoId}.mp3）。
+    # title/artist Cyanite 库里根本没有，留空 → 由 enrich_meta 走 Jamendo 补全。
+    return {"track_id": track_id, "cyanite_id": cyanite_id, "title": "", "artist": ""}
 
 
 def normalize(resp: dict) -> list[dict]:
@@ -182,22 +175,54 @@ def model_tags(cyanite_id: str, models: list[str]) -> dict:
     return r.json()
 
 
+# --- 感觉标签（memory 的味道时间轴用，带磁盘缓存）---
+_TAG_CACHE = pathlib.Path(__file__).resolve().parent / ".cache" / "models"
+# version -> (输出键, top-K)。只取感觉三维，不下载硬变量。
+_FEEL_DIMS = {"MoodSimpleV2": ("moods", 4), "CharacterV2": ("character", 4),
+              "MovementV2": ("movement", 3)}
+
+
+def _flat_tags(mo: dict, thresh: float = 0.2, topk: int = 6) -> list[str]:
+    """扁平 tag：兼容汇总 `tags` 与分段 `segments`（时间轴取 max→过阈→top-K，防上下文爆炸）。"""
+    if isinstance(mo.get("tags"), list):
+        return mo["tags"]
+    vals = (mo.get("segments") or {}).get("values") or {}
+    if not vals:
+        return []
+    scored = sorted(((k, max(v or [0.0])) for k, v in vals.items()), key=lambda kv: -kv[1])
+    return [k for k, m in scored if m >= thresh][:topk]
+
+
+def feel_tags(cyanite_id: str, models: list[str]) -> dict[str, list[str]]:
+    """某曲的感觉标签 {moods/character/movement: [...]}，按 (id, models) 磁盘缓存。
+    ponytail: 缓存命中即返回，未命中走 model_tags（429/退避交给 _session 的 Retry）。"""
+    key = cyanite_id + "|" + ",".join(sorted(models))
+    p = _TAG_CACHE / (hashlib.sha1(key.encode()).hexdigest() + ".json")
+    if p.exists():
+        return json.loads(p.read_text())
+    out: dict[str, list[str]] = {}
+    for mo in model_tags(cyanite_id, models).get("items", []):
+        dim = _FEEL_DIMS.get(mo.get("version"))
+        if dim:
+            out[dim[0]] = _flat_tags(mo, topk=dim[1])
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(out))
+    return out
+
+
 def _selfcheck() -> None:
-    """离线自检：种子曲拿到真实 artist；非种子 catalog 曲也能解析出 track_id（只是无 artist）。"""
+    """离线自检：种子曲拿到真实 artist；非种子曲 track_id 取自调用方（Cyanite 响应），title/artist 留空。"""
     pack_cid = next(iter(_DISPLAY))
     d = display(pack_cid)
     assert d["track_id"] and d["artist"], f"种子曲应有 track_id+artist: {d}"
-    # 全库里挑一个不在数据包的 catalog 曲
-    other_cid = next(c for c in _CYAN_TO_TRACK if c not in _DISPLAY)
-    o = display(other_cid)
-    assert o["track_id"] and o["artist"] == "", f"非种子曲应有 track_id、artist 为空: {o}"
-    assert to_jamendo(other_cid) == o["track_id"]
-    # 新上传曲不在 mapper：track_id 应回退到调用方从 API 响应解析的值
+    assert to_jamendo(pack_cid) == d["track_id"]
+    # 非种子曲：track_id 必须用调用方从 API 响应解析的值，title/artist 留空走 Jamendo
     n = display("libtr_doesnotexist", track_id="919998")
-    assert n["track_id"] == "919998", f"新曲应用 API 给的 track_id: {n}"
+    assert n["track_id"] == "919998" and n["title"] == "", f"非种子曲应用 API 给的 track_id、title 留空: {n}"
+    # normalize 直接从 {jamendoId}.mp3 解析 track_id，不依赖任何本地映射
     assert normalize({"items": [{"score": 0.9, "track": {"id": "x", "title": "919998.mp3"}}]}) \
         == [{"cyanite_id": "x", "score": 0.9, "track_id": "919998"}]
-    print(f"✅ selfcheck: 种子 {pack_cid}->{d['artist']!r} / 非种子 {other_cid}->track_id {o['track_id']}")
+    print(f"✅ selfcheck: 种子 {pack_cid}->{d['artist']!r} / 非种子 track_id 取自响应")
 
 
 if __name__ == "__main__":

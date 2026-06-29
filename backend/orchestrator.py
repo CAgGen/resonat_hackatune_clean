@@ -48,9 +48,10 @@ def _recompile(s: dict) -> None:
     s["query_card"] = intent_agent.compile_query_card(s["whiteboard_posts"], profile)
 
 
-def _card(cyanite_id: str, score: float, source: str) -> dict:
-    """统一的推荐卡。source ∈ {'free_text','similar','profile_semantic'}；score 是主信号分。"""
-    d = cyanite.display(cyanite_id)
+def _card(cyanite_id: str, score: float, source: str, track_id: str = "") -> dict:
+    """统一的推荐卡。source ∈ {'free_text','similar','profile_semantic'}；score 是主信号分。
+    track_id 来自 Cyanite 响应（{jamendoId}.mp3），直接透传给 display，不本地反查。"""
+    d = cyanite.display(cyanite_id, track_id)
     return {
         "track_id": d.get("track_id", ""),
         "cyanite_id": cyanite_id,
@@ -109,7 +110,7 @@ def _record_like(s: dict, cyanite_id: str) -> None:
 
 
 def _card_from_candidate(candidate: dict, source: str) -> dict | None:
-    card = _card(candidate["cyanite_id"], candidate["final_score"], source)
+    card = _card(candidate["cyanite_id"], candidate["final_score"], source, candidate.get("track_id", ""))
     card.update({
         "source_liked_track": candidate.get("source_liked_track"),
         "similar_score": candidate.get("similar_score"),
@@ -124,6 +125,7 @@ def _set_single_seed_pool(s: dict, cyanite_id: str) -> None:
     rows = cyanite.find_similar(cyanite_id, limit=config.SIMILAR_LIMIT)
     s["candidate_pool"] = [{
         "cyanite_id": r["cyanite_id"],
+        "track_id": r.get("track_id", ""),
         "source_liked_track": cyanite_id,
         "similar_score": r["score"],
         "prompt_match_score": None,
@@ -158,7 +160,7 @@ def _profile_refill(s: dict) -> dict | None:
         cid = row["cyanite_id"]
         if cid in excluded:
             continue
-        card = _card(cid, row["score"], "profile_semantic")
+        card = _card(cid, row["score"], "profile_semantic", row.get("track_id", ""))
         card.update({
             "prompt_match_score": row["score"],
             "final_score": row["score"],
@@ -183,7 +185,8 @@ def _expand_pool(s: dict) -> None:
     else:
         rows = cyanite.find_similar(s["liked_tracks"][0], limit=config.SIMILAR_LIMIT)
     s["candidate_pool"] = [{
-        "cyanite_id": r["cyanite_id"], "source_liked_track": ",".join(s["liked_tracks"]),
+        "cyanite_id": r["cyanite_id"], "track_id": r.get("track_id", ""),
+        "source_liked_track": ",".join(s["liked_tracks"]),
         "similar_score": r["score"], "prompt_match_score": None, "status": "candidate"
     } for r in rows]
     s["pool_sig"] = sig
@@ -240,7 +243,7 @@ def confirm(session_id: str) -> dict:
     s["query_card"]["metadata_filter"] = args["metadata_filter"]
     results = cyanite.search_by_prompt(args["query"], limit=config.SEARCH_LIMIT,
                                        metadata_filter=args["metadata_filter"])
-    cards = cyanite.enrich_meta([_card(r["cyanite_id"], r["score"], "free_text") for r in results])
+    cards = cyanite.enrich_meta([_card(r["cyanite_id"], r["score"], "free_text", r.get("track_id", "")) for r in results])
     s["visible_cards"] = cards[:config.VISIBLE_N]
     s["free_text_backlog"] = cards[config.VISIBLE_N:]
     _inject_surprise(s)  # 惊喜位只在本轮第一批出现；后续 feedback 回填不再加
@@ -264,7 +267,7 @@ def _inject_surprise(s: dict) -> None:
             return
     except Exception:
         return
-    card = cyanite.enrich_meta([_card(pick["cyanite_id"], pick["score"], "surprise")])[0]
+    card = cyanite.enrich_meta([_card(pick["cyanite_id"], pick["score"], "surprise", pick.get("track_id", ""))])[0]
     s["visible_cards"].insert(min(3, len(s["visible_cards"])), card)  # 沿用「第4张」惊喜位
     if len(s["visible_cards"]) > config.VISIBLE_N:                    # 挤出的普通卡退回 backlog
         s["free_text_backlog"].insert(0, s["visible_cards"].pop())
@@ -323,7 +326,7 @@ def sounds_like_you(user_id: str) -> dict:
             top = results[: config.SOUNDS_LIKE_YOU_LIMIT]
             if top:
                 cards = cyanite.enrich_meta(
-                    [_card(r["cyanite_id"], r["score"], "sounds_like_you") for r in top]
+                    [_card(r["cyanite_id"], r["score"], "sounds_like_you", r.get("track_id", "")) for r in top]
                 )
     except Exception:
         pass
@@ -390,7 +393,7 @@ def explain(session_id: str, track_id: str) -> dict:
         recommended_tags,
         recommendation_meta,
         explanation_example,
-        cyanite.display(cyanite_id),
+        cyanite.display(cyanite_id, card.get("track_id", "")),
     )
     # 角标：主导情绪随时间的时间轴，时间戳直接来自 Cyanite segments（已在 recommended_tags 里，零额外请求）。
     result["segments"] = explanation_builder.mood_timeline(recommended_tags)

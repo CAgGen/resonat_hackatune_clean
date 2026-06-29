@@ -1,4 +1,4 @@
-"""编排框架自检。monkeypatch 三个接缝（cyanite / intent_compiler / memory），离线跑主循环。
+"""编排框架自检。monkeypatch 三个接缝（cyanite / intent_agent / memory），离线跑主循环。
 新逻辑：普通模式 like 会划走并用该曲 similarById 回填；防沉迷模式 like 只记录不划走。
 run: uv run pytest -v
 """
@@ -46,8 +46,6 @@ def _fake_seams(monkeypatch, tmp_path):
                             "interpretation_plain": "test intent",
                             "free_text_query": "",
                             "metadata_filter": None,
-                            "soft_targets": [],
-                            "negatives": [],
                         })
     monkeypatch.setattr(orch.intent_agent, "search_args",
                         lambda posts, profile_md="": {"query": "test intent", "metadata_filter": None})
@@ -149,7 +147,7 @@ def test_normal_like_swipes_and_refills_from_clicked_track_similarity(monkeypatc
 
     fin = client.post("/round/finish", json={"session_id": sid}).json()   # ⑦ 完成本轮
     assert (tmp_path / "u2.evidence.md").read_text(encoding="utf-8").count("\n- ") == 1  # 此刻才写 1 行
-    assert "你的感觉" in fin["memory_md"]
+    assert "Your Feel" in fin["memory_md"]
 
 
 def test_anti_addiction_like_records_without_swiping(monkeypatch, tmp_path):

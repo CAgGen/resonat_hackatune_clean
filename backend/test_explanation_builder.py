@@ -7,8 +7,6 @@ import explanation_builder
 QUERY_CARD = {
     "interpretation_plain": "Restrained night-train music with minimal vocals.",
     "free_text_query": "lonely night train restrained low energy minimal vocals",
-    "soft_targets": [{"dim": "mood", "value": "calm melancholy", "weight": 0.8}],
-    "negatives": [{"dim": "vocals", "value": "prominent vocals"}],
 }
 
 LIKED_TAGS = {

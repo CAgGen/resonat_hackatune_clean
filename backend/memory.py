@@ -61,9 +61,9 @@ def feeling_injection(user_id: str) -> str:
 def _feeling_tags(track_id: str) -> list[str]:
     """Feel tags for one track: mood + character + movement, deduplicated.
     Only requests these three models — no instruments / genre / BPM segments downloaded. seam: replaceable in self-check."""
-    from profile import tags as tagmod
+    import cyanite
     try:
-        t = tagmod.for_track(track_id, models=FEELING_MODELS) or {}
+        t = cyanite.feel_tags(track_id, FEELING_MODELS) or {}
     except Exception:
         return []
     out = []
